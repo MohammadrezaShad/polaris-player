@@ -1,0 +1,20 @@
+import { defineConfig } from "tsup";
+import fs from "node:fs";
+
+const pkg = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
+
+export default defineConfig({
+  entry: ["src/index.ts"],
+  dts: true,
+  format: ["esm", "cjs"],
+  outDir: "dist",
+  sourcemap: true,
+  clean: true,
+  splitting: false,
+  treeshake: true,
+  minify: false,
+  external: [
+    ...Object.keys(pkg.peerDependencies || {}),
+    /^shaka-player(\/.*)?$/ // ⬅️ mark all shaka paths external
+  ],
+});
