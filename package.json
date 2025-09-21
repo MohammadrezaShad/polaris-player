@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Polaris Player – reusable Next.js/Tailwind/shadcn video player",
   "license": "MIT",
   "type": "module",
