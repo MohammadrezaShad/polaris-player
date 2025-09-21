@@ -1,15 +1,33 @@
-name: CI
+name: Publish to npm (on tag)
+
 on:
   push:
-  pull_request:
+    tags:
+      - "v*.*.*" # match tags like v0.1.0, v1.2.3
+
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
-      - run: npm ci
-      - run: npm run build
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install deps & build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # npm will use NODE_AUTH_TOKEN to authenticate
+          npm publish --access public
