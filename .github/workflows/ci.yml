@@ -3,7 +3,7 @@ name: Publish to npm (on tag)
 on:
   push:
     tags:
-      - "v*.*.*" # match tags like v0.1.0, v1.2.3
+      - "v*.*.*" # trigger only on tags like v0.1.1
 
 jobs:
   build-and-publish:
@@ -14,20 +14,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Use Node
+      - name: Setup Node (and npm registry)
         uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
 
-      - name: Install deps & build
+      - name: Install dependencies and build
         run: |
           npm ci
           npm run build
+
+      - name: Configure npm auth (from secret)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # write auth token to npmrc for this runner
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          # confirm auth (optional)
+          npm whoami || true
 
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # npm will use NODE_AUTH_TOKEN to authenticate
+          # publish (scoped packages must use --access public)
           npm publish --access public
