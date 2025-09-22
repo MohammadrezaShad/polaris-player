@@ -16,10 +16,7 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./client": {
-      "import": "./dist/client.js",
-      "require": "./dist/client.cjs"
-    },
+    "./client": "./src/client.ts",
     "./tailwind-preset": "./tailwind-preset.cjs",
     "./styles.css": "./styles.css"
   },
@@ -27,7 +24,8 @@
     "dist",
     "tailwind-preset.cjs",
     "styles.css",
-    "README.md"
+    "README.md",
+    "src/client.ts"
   ],
   "sideEffects": [
     "*.css"
