@@ -13,8 +13,4 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   minify: false,
-  external: [
-    ...Object.keys(pkg.peerDependencies || {}),
-    /^shaka-player(\/.*)?$/ // ⬅️ mark all shaka paths external
-  ],
 });

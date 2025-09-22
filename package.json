@@ -79,7 +79,8 @@
     "sonner": "*",
     "tailwind-merge": "*",
     "tailwindcss": "^3.4 || ^4.0",
-    "vaul": "*"
+    "vaul": "*",
+    "shaka-player": "^4.16.2"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
