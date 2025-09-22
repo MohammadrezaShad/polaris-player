@@ -4,7 +4,7 @@ import fs from "node:fs";
 const pkg = JSON.parse(fs.readFileSync("./package.json", "utf-8"));
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/client.ts"], // add client entry
   dts: true,
   format: ["esm", "cjs"],
   outDir: "dist",

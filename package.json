@@ -16,6 +16,10 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./client": {
+      "import": "./dist/client.js",
+      "require": "./dist/client.cjs"
+    },
     "./tailwind-preset": "./tailwind-preset.cjs",
     "./styles.css": "./styles.css"
   },

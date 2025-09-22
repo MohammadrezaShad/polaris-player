@@ -1,4 +1,4 @@
-"use client";
+/** src/player/index.ts */
 export * from "./ports";
 export * from "./core/events";
 export * from "./core/state";
