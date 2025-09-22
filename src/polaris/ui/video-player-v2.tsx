@@ -1,44 +1,43 @@
-/** src/player/ui/video-player-v2.tsx (with reveal-guard + mobile tap fixes + pulse) */
-'use client';
-import * as React from 'react';
-import { TooltipProvider } from '../../vendor/ui/tooltip';
-import { cn } from '../../vendor/helpers/cn';
-import dynamic from 'next/dynamic';
+"use client";
+import * as React from "react";
+import { TooltipProvider } from "../../vendor/ui/tooltip";
+import { cn } from "../../vendor/helpers/cn";
+import dynamic from "next/dynamic";
 
-import { I18nProvider, useI18n } from '../providers/i18n/i18n';
-import type { SourceDescriptor, Level, Track } from '../ports';
-import { PlayerProvider, usePlayerDeps } from '../providers/player-provider';
-import { usePlayerMachine } from '../core/machine';
-import type { PlayerContext } from '../core/state';
-import { useHysteresis } from '../hooks/use-hysteresis';
-import { useAutoHide } from '../hooks/use-auto-hide';
-import { MediaSurface } from './surface/media-surface';
-import { ControlsBar } from './controls/controls-bar';
-import { OfflineBanner } from './overlays/offline-banner';
-import type { CaptionStyle } from './overlays/caption-overlay';
-import { useFullscreen } from '../hooks/use-fullscreen';
-import { usePiP } from '../hooks/use-pip';
-import { usePageActivity } from '../hooks/use-page-activity';
-import { useResilience } from '../hooks/use-resilience';
-import { useSsaiRanges } from '../hooks/use-ssai-ranges';
-import { usePersistenceAndPrefs } from '../hooks/use-persistence-and-prefs';
-import { useTimeAndBuffer } from '../hooks/use-time-and-buffer';
-import { useThumbs } from '../hooks/use-thumbs';
-import { useQoSHeartbeat } from '../hooks/use-qo-s-heartbeat';
-import { useAdsAutoplayResume } from '../hooks/use-ads-autoplay-resume';
-import { useStallWatch } from '../hooks/use-stall-watch';
-import { useKeyboardShortcuts } from '../hooks/use-keyboard';
-import { useMobileExtras } from '../hooks/use-mobile-extras';
-import { MobileControls } from './controls/mobile-controls';
-import { TapToUnmute } from './overlays/tap-to-unmute';
+import { I18nProvider, useI18n } from "../providers/i18n/i18n";
+import type { SourceDescriptor, Level, Track } from "../ports";
+import { PlayerProvider, usePlayerDeps } from "../providers/player-provider";
+import { usePlayerMachine } from "../core/machine";
+import type { PlayerContext } from "../core/state";
+import { useHysteresis } from "../hooks/use-hysteresis";
+import { useAutoHide } from "../hooks/use-auto-hide";
+import { MediaSurface } from "./surface/media-surface";
+import { ControlsBar } from "./controls/controls-bar";
+import { OfflineBanner } from "./overlays/offline-banner";
+import type { CaptionStyle } from "./overlays/caption-overlay";
+import { useFullscreen } from "../hooks/use-fullscreen";
+import { usePiP } from "../hooks/use-pip";
+import { usePageActivity } from "../hooks/use-page-activity";
+import { useResilience } from "../hooks/use-resilience";
+import { useSsaiRanges } from "../hooks/use-ssai-ranges";
+import { usePersistenceAndPrefs } from "../hooks/use-persistence-and-prefs";
+import { useTimeAndBuffer } from "../hooks/use-time-and-buffer";
+import { useThumbs } from "../hooks/use-thumbs";
+import { useQoSHeartbeat } from "../hooks/use-qo-s-heartbeat";
+import { useAdsAutoplayResume } from "../hooks/use-ads-autoplay-resume";
+import { useStallWatch } from "../hooks/use-stall-watch";
+import { useKeyboardShortcuts } from "../hooks/use-keyboard";
+import { useMobileExtras } from "../hooks/use-mobile-extras";
+import { MobileControls } from "./controls/mobile-controls";
+import { TapToUnmute } from "./overlays/tap-to-unmute";
 
-const SettingsPopover = dynamic(() => import('./settings/settings-popover'), { ssr: false });
-const SettingsDrawer = dynamic(() => import('./settings/settings-drawer'), { ssr: false });
+const SettingsPopover = dynamic(() => import("./settings/settings-popover"), { ssr: false });
+const SettingsDrawer = dynamic(() => import("./settings/settings-drawer"), { ssr: false });
 
 function uuid(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
@@ -64,68 +63,38 @@ type Props = {
     forbidden?: boolean;
   };
   playerVersion?: string;
-  autoplayMode?: 'off' | 'on' | 'smart';
+  autoplayMode?: "off" | "on" | "smart";
   autoplayVolume?: number;
   locale?: string;
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
 };
 
-export default function VideoPlayerV2({
-  source,
-  analyticsEndpoint,
-  hasAnalytics = false,
-  embedCtx,
-  playerVersion = 'v2.7-refactor-final',
-  autoplayMode = 'smart',
-  autoplayVolume = 1,
-  locale = 'en',
-  className,
-  onFirstVideoLoaded,
-}: Props) {
+export default function VideoPlayerV2({ source, analyticsEndpoint, hasAnalytics = false, embedCtx, playerVersion = "v2.7-refactor-final", autoplayMode = "smart", autoplayVolume = 1, locale = "en", className, onFirstVideoLoaded }: Props) {
   // Avoid random on the server render to keep SSR/CSR stable
   const sessionRef = React.useRef<string | null>(null);
   if (sessionRef.current == null) {
-    sessionRef.current = embedCtx.sessionId ?? (typeof window !== 'undefined' ? uuid() : 'ssr');
+    sessionRef.current = embedCtx.sessionId ?? (typeof window !== "undefined" ? uuid() : "ssr");
   }
 
   const ctx = React.useMemo(
     () => ({
       sessionId: sessionRef.current!,
-      origin:
-        embedCtx.origin ?? (typeof document !== 'undefined' ? document.referrer || window.location.origin : undefined),
-      iframeSrc: embedCtx.iframeSrc ?? (typeof window !== 'undefined' ? window.location.href : undefined),
+      origin: embedCtx.origin ?? (typeof document !== "undefined" ? document.referrer || window.location.origin : undefined),
+      iframeSrc: embedCtx.iframeSrc ?? (typeof window !== "undefined" ? window.location.href : undefined),
       multimediaId: embedCtx.multimediaId,
       streamingId: embedCtx.streamingId,
       forbidden: embedCtx.forbidden ?? false,
       playerVersion,
     }),
-    [
-      embedCtx.origin,
-      embedCtx.iframeSrc,
-      embedCtx.multimediaId,
-      embedCtx.streamingId,
-      embedCtx.forbidden,
-      playerVersion,
-    ],
+    [embedCtx.origin, embedCtx.iframeSrc, embedCtx.multimediaId, embedCtx.streamingId, embedCtx.forbidden, playerVersion]
   );
 
   return (
     <I18nProvider locale={locale as any}>
-      <PlayerProvider
-        analyticsEndpoint={analyticsEndpoint}
-        hasAnalytics={hasAnalytics}
-        embedCtx={ctx}
-        playerVersion={playerVersion}
-      >
+      <PlayerProvider analyticsEndpoint={analyticsEndpoint} hasAnalytics={hasAnalytics} embedCtx={ctx} playerVersion={playerVersion}>
         <TooltipProvider delayDuration={100}>
-          <InnerPlayer
-            source={source}
-            autoplayMode={autoplayMode}
-            autoplayVolume={autoplayVolume}
-            onFirstVideoLoaded={onFirstVideoLoaded}
-            className={className}
-          />
+          <InnerPlayer source={source} autoplayMode={autoplayMode} autoplayVolume={autoplayVolume} onFirstVideoLoaded={onFirstVideoLoaded} className={className} />
         </TooltipProvider>
       </PlayerProvider>
     </I18nProvider>
@@ -135,7 +104,7 @@ export default function VideoPlayerV2({
 // ────────────────────────────────────────────────────────────────────────────────
 // Inner (refactored): composition of hooks + simple render
 // ────────────────────────────────────────────────────────────────────────────────
-const MEDIA_Q = '(min-width: 960px)';
+const MEDIA_Q = "(min-width: 960px)";
 
 function useDesktopAfterMount(): boolean | null {
   // Hydration-safe media query: SSR → null (no branching), CSR after mount → boolean
@@ -145,8 +114,8 @@ function useDesktopAfterMount(): boolean | null {
     const apply = () => setIsDesktop(mql.matches);
     apply();
     try {
-      mql.addEventListener('change', apply);
-      return () => mql.removeEventListener('change', apply);
+      mql.addEventListener("change", apply);
+      return () => mql.removeEventListener("change", apply);
     } catch {
       // Safari < 14
       mql.addListener(apply);
@@ -164,7 +133,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
   className,
 }: {
   source: SourceDescriptor;
-  autoplayMode: 'off' | 'on' | 'smart';
+  autoplayMode: "off" | "on" | "smart";
   autoplayVolume: number;
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
@@ -187,29 +156,15 @@ const InnerPlayer = React.memo(function InnerPlayer({
   const ssai = useSsaiRanges(videoRef as any);
 
   // Machine
-  const initial: PlayerContext = React.useMemo(
-    () => ({ prefs: { volume: 1, muted: false, speed: 1, quality: 'auto' }, state: 'idle', intentPlaying: false }),
-    [],
-  );
+  const initial: PlayerContext = React.useMemo(() => ({ prefs: { volume: 1, muted: false, speed: 1, quality: "auto" }, state: "idle", intentPlaying: false }), []);
   const { state, dispatch } = usePlayerMachine(initial);
   const playingRef = React.useRef(false);
   React.useEffect(() => {
-    playingRef.current = state.state === 'playing';
+    playingRef.current = state.state === "playing";
   }, [state.state]);
 
   // UI hide
-  const {
-    visible: controlsVisible,
-    setMenuOpen,
-    setInteractionLock,
-    ping,
-    onPointerMove,
-    onControlsPointerEnter,
-    onControlsPointerLeave,
-    onControlsPointerDown,
-    setVisible,
-    toggleVisible,
-  } = useAutoHide({ idleMs: 2500 }) as any;
+  const { visible: controlsVisible, setMenuOpen, setInteractionLock, ping, onPointerMove, onControlsPointerEnter, onControlsPointerLeave, onControlsPointerDown, setVisible, toggleVisible } = useAutoHide({ idleMs: 2500 }) as any;
 
   // Guard: block control interactions for a short time right after reveal
   const controlsRevealGuardUntilRef = React.useRef(0);
@@ -220,20 +175,17 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
   // Keep controls visible when paused/ended (mobile spec)
   React.useEffect(() => {
-    const keep =
-      state.state === 'paused' ||
-      state.state === 'ended' ||
-      (state.state === 'idle' && (videoRef.current?.paused ?? true));
+    const keep = state.state === "paused" || state.state === "ended" || (state.state === "idle" && (videoRef.current?.paused ?? true));
     setInteractionLock(keep);
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     keep && setVisible(keep);
   }, [state.state, setInteractionLock]);
 
-  const hideCursor = state.state === 'playing' && !controlsVisible;
+  const hideCursor = state.state === "playing" && !controlsVisible;
 
   // ── Pulse overlay state ──────────────────────────────────────────────────────
-  const [pulse, setPulse] = React.useState<null | { kind: 'play' | 'pause'; key: number }>(null);
-  const triggerPulse = React.useCallback((kind: 'play' | 'pause') => {
+  const [pulse, setPulse] = React.useState<null | { kind: "play" | "pause"; key: number }>(null);
+  const triggerPulse = React.useCallback((kind: "play" | "pause") => {
     setPulse({ kind, key: Date.now() });
     window.setTimeout(() => setPulse(null), 560);
   }, []);
@@ -245,46 +197,23 @@ const InnerPlayer = React.memo(function InnerPlayer({
   // Online
   const [online, setOnline] = React.useState(true);
   React.useEffect(() => {
-    const sync = () => setOnline(typeof navigator === 'undefined' ? true : !!navigator.onLine);
+    const sync = () => setOnline(typeof navigator === "undefined" ? true : !!navigator.onLine);
     sync();
-    window.addEventListener('online', sync);
-    window.addEventListener('offline', sync);
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
     return () => {
-      window.removeEventListener('online', sync);
-      window.removeEventListener('offline', sync);
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
     };
   }, []);
 
   // Resilience
-  const [resState, setResState] = React.useState<'ok' | 'stall' | 'retrying' | 'offline'>('ok');
+  const [resState, setResState] = React.useState<"ok" | "stall" | "retrying" | "offline">("ok");
   useResilience({ engine, source, onState: setResState });
 
   // Prefs + persistence
   const prefs = usePersistenceAndPrefs({ engine: engine as any, storage, sourceId: source.id, videoRef });
-  const {
-    volume,
-    setVolume,
-    muted,
-    setMuted,
-    rate,
-    setRate,
-    dataSaver,
-    setDataSaver,
-    persistOn,
-    setPersistOn,
-    levels,
-    audios,
-    texts,
-    textId,
-    setTextId,
-    cc,
-    setCc,
-    audioId,
-    setAudioId,
-    levelSel,
-    setLevelSel,
-    refreshTracks,
-  } = prefs;
+  const { volume, setVolume, muted, setMuted, rate, setRate, dataSaver, setDataSaver, persistOn, setPersistOn, levels, audios, texts, textId, setTextId, cc, setCc, audioId, setAudioId, levelSel, setLevelSel, refreshTracks } = prefs;
 
   // Remember last non-zero volume (for unmute restore)
   const lastNonZeroVolumeRef = React.useRef<number>(volume > 0 ? volume : 0.6);
@@ -344,15 +273,11 @@ const InnerPlayer = React.memo(function InnerPlayer({
   });
 
   // Thumbnails
-  const { seekbarRef, hoverState, onSeekbarMouseMove, onSeekbarLeave, sliderMax, updateFromRatio } = useThumbs(
-    source,
-    duration,
-    currentTime,
-  );
+  const { seekbarRef, hoverState, onSeekbarMouseMove, onSeekbarLeave, sliderMax, updateFromRatio } = useThumbs(source, duration, currentTime);
 
   // Mobile extras
   useMobileExtras({
-    statePlaying: state.state === 'playing',
+    statePlaying: state.state === "playing",
     pipActive,
     togglePiP,
     fsActive,
@@ -361,11 +286,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
   });
 
   // Derived UI flags
-  const loadingActive =
-    state.state === 'loading' || state.state === 'buffering' || state.state === 'seeking' || resState === 'retrying';
+  const loadingActive = state.state === "loading" || state.state === "buffering" || state.state === "seeking" || resState === "retrying";
   const showLoading = useHysteresis(loadingActive, 120, 100);
-  const showEnded = state.state === 'ended';
-  const showError = resState === 'offline';
+  const showEnded = state.state === "ended";
+  const showError = resState === "offline";
 
   // Toggle helpers
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -380,11 +304,11 @@ const InnerPlayer = React.memo(function InnerPlayer({
       try {
         await (engine.pause ? engine.pause?.() : v.pause?.());
       } catch {}
-      dispatch({ type: 'pause' } as any);
-      triggerPulse('pause');
+      dispatch({ type: "pause" } as any);
+      triggerPulse("pause");
     } else {
       await gatedPlay();
-      triggerPulse('play');
+      triggerPulse("play");
     }
     ping();
   };
@@ -394,10 +318,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
       ping();
       return;
     }
-    const to = Math.max(
-      0,
-      Math.min((engine.getDuration?.() ?? duration) || 0, (engine.getCurrentTime?.() ?? currentTime) + delta),
-    );
+    const to = Math.max(0, Math.min((engine.getDuration?.() ?? duration) || 0, (engine.getCurrentTime?.() ?? currentTime) + delta));
     setCurrentTime(to);
     engine.seekTo?.(to);
     ping();
@@ -470,12 +391,12 @@ const InnerPlayer = React.memo(function InnerPlayer({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (isDesktopResolved !== false) return; // mobile-only
       if (adActive) return;
-      if (state.state === 'playing' && !controlsVisible) {
+      if (state.state === "playing" && !controlsVisible) {
         consumeNextToggleRef.current = true; // skip next toggle
         suppressToggleUntilRef.current = Date.now() + 350;
       }
     },
-    [isDesktopResolved, adActive, state.state, controlsVisible],
+    [isDesktopResolved, adActive, state.state, controlsVisible]
   );
 
   const guardedTogglePlay = React.useCallback(async () => {
@@ -500,14 +421,14 @@ const InnerPlayer = React.memo(function InnerPlayer({
       const isControlsTarget = (e.target as HTMLElement | null)?.closest?.('[data-controls-root="true"]');
 
       // Tap-to-unmute has priority
-      if (isMobile && state.state === 'playing' && muted) {
+      if (isMobile && state.state === "playing" && muted) {
         forceUnmute();
         return;
       }
 
       // ── Mobile & controls hidden ───────────────────────────────────────────────
       if (isMobile && !controlsVisible) {
-        if (state.state === 'playing') {
+        if (state.state === "playing") {
           // Double-tap seek while playing
           const now = Date.now();
           const { t: lastT, x: lastX, y: lastY } = lastTapRef.current;
@@ -547,7 +468,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
         if (isControlsTarget) return; // controls handle their own taps
 
         // While locked & playing: require two bg taps to pause
-        if (controlsLockRef.current && state.state === 'playing') {
+        if (controlsLockRef.current && state.state === "playing") {
           if (bgPauseGuardRef.current > 0) {
             bgPauseGuardRef.current -= 1;
             ping();
@@ -558,8 +479,8 @@ const InnerPlayer = React.memo(function InnerPlayer({
               const v = videoRef.current;
               if (v && !v.paused) await (engine.pause ? engine.pause() : v.pause());
             } catch {}
-            dispatch({ type: 'pause' } as any);
-            triggerPulse('pause');
+            dispatch({ type: "pause" } as any);
+            triggerPulse("pause");
           })();
           controlsLockRef.current = false;
           setInteractionLock(false);
@@ -577,23 +498,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
       // Desktop or other: keep UI alive
       ping();
     },
-    [
-      adActive,
-      isDesktopResolved,
-      controlsVisible,
-      state.state,
-      muted,
-      forceUnmute,
-      seekBy,
-      setVisible,
-      setInteractionLock,
-      toggleVisible,
-      ping,
-      engine,
-      dispatch,
-      videoRef,
-      triggerPulse,
-    ],
+    [adActive, isDesktopResolved, controlsVisible, state.state, muted, forceUnmute, seekBy, setVisible, setInteractionLock, toggleVisible, ping, engine, dispatch, videoRef, triggerPulse]
   );
 
   // Provide a background-tap toggle for MobileControls dim area
@@ -638,22 +543,22 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
     const doAttachAndLoad = async () => {
       try {
-        dispatch({ type: 'load' } as any);
+        dispatch({ type: "load" } as any);
         // Ensure attach completes before load
         await (engine.attach?.(videoRef.current) ?? Promise.resolve());
         if (cancelled) return;
         await (engine.load?.(source) ?? Promise.resolve());
         if (cancelled) return;
-        analytics.emit({ type: 'session_start', ctx: embedCtx, src: { id: source.id, url: source.url } });
+        analytics.emit({ type: "session_start", ctx: embedCtx, src: { id: source.id, url: source.url } });
       } catch (err) {
-        console.error('engine attach/load failed:', err);
+        console.error("engine attach/load failed:", err);
       }
     };
 
     void doAttachAndLoad();
 
-    const unMeta = engine.on?.('engine_loadedmetadata', async () => {
-      dispatch({ type: 'engine_ready' } as any);
+    const unMeta = engine.on?.("engine_loadedmetadata", async () => {
+      dispatch({ type: "engine_ready" } as any);
       refreshTracks();
 
       const lvls = engine.getLevels?.() ?? [];
@@ -676,19 +581,16 @@ const InnerPlayer = React.memo(function InnerPlayer({
       // Smart resume
       let resumeTarget: number | null = null;
       try {
-        const raw =
-          typeof storage.getResume === 'function'
-            ? await storage.getResume(`vod:${source.id}`)
-            : (((await storage.getPrefs(`vod:${source.id}`)) as any)?.lastTime ?? null);
+        const raw = typeof storage.getResume === "function" ? await storage.getResume(`vod:${source.id}`) : ((await storage.getPrefs(`vod:${source.id}`)) as any)?.lastTime ?? null;
         const durNow = engine.getDuration?.() ?? 0;
-        const t0 = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
+        const t0 = typeof raw === "string" ? parseFloat(raw) : Number(raw);
         const endGuard = Number.isFinite(durNow) && durNow > 0 ? Math.max(5, durNow * 0.03) : 0;
         if (Number.isFinite(t0) && t0 > 1 && (Number.isFinite(durNow) ? t0 < Math.max(0, durNow - endGuard) : true)) {
           resumeTarget = Math.min(Math.max(0, t0), Math.max(0, (Number.isFinite(durNow) ? durNow : Infinity) - 1));
         }
       } catch {}
 
-      const wantAutoplay = autoplayMode !== 'off';
+      const wantAutoplay = autoplayMode !== "off";
       if (resumeTarget != null) {
         let ok = await tryPrimeAt(resumeTarget);
         if (!ok) ok = await tryPrimeAt(Math.max(0, resumeTarget - 15));
@@ -699,24 +601,24 @@ const InnerPlayer = React.memo(function InnerPlayer({
       }
     });
 
-    const unCanPlay = engine.on?.('engine_canplay', () => dispatch({ type: 'engine_ready' } as any));
-    const unBufS = engine.on?.('engine_buffering_start', () => dispatch({ type: 'buffer_start' } as any));
-    const unBufE = engine.on?.('engine_buffering_end', () => dispatch({ type: 'buffer_end' } as any));
-    const unSeekS = engine.on?.('engine_seek_start', () => dispatch({ type: 'seek_start' } as any));
-    const unSeekE = engine.on?.('engine_seek_end', () => dispatch({ type: 'seek_end' } as any));
+    const unCanPlay = engine.on?.("engine_canplay", () => dispatch({ type: "engine_ready" } as any));
+    const unBufS = engine.on?.("engine_buffering_start", () => dispatch({ type: "buffer_start" } as any));
+    const unBufE = engine.on?.("engine_buffering_end", () => dispatch({ type: "buffer_end" } as any));
+    const unSeekS = engine.on?.("engine_seek_start", () => dispatch({ type: "seek_start" } as any));
+    const unSeekE = engine.on?.("engine_seek_end", () => dispatch({ type: "seek_end" } as any));
 
-    const unEnd = engine.on?.('engine_ended', async () => {
+    const unEnd = engine.on?.("engine_ended", async () => {
       const dur = engine.getDuration?.() ?? 0;
       const cur = engine.getCurrentTime?.() ?? 0;
       const endGuard = Number.isFinite(dur) && dur > 0 ? Math.max(5, dur * 0.03) : 0;
       const reallyAtEnd = Number.isFinite(dur) && dur > 0 ? cur >= dur - endGuard : false;
       if (!reallyAtEnd) {
-        scheduleStallWatch('spurious_ended');
+        scheduleStallWatch("spurious_ended");
         return;
       }
-      dispatch({ type: 'ended' } as any);
+      dispatch({ type: "ended" } as any);
       try {
-        if (typeof storage.setResume === 'function') await storage.setResume(`vod:${source.id}`, 0);
+        if (typeof storage.setResume === "function") await storage.setResume(`vod:${source.id}`, 0);
         else {
           const p = (await storage.getPrefs(`vod:${source.id}`)) ?? ({} as any);
           await storage.setPrefs(`vod:${source.id}`, { ...(p as any), lastTime: 0 } as any);
@@ -725,7 +627,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
       (ads as any)?.notifyEnded?.();
     });
 
-    const unErr = engine.on?.('engine_error', async (e: any) => {
+    const unErr = engine.on?.("engine_error", async (e: any) => {
       const firstPlaybackNotStarted = (engine.getCurrentTime?.() ?? 0) < 0.1;
       if (e?.fatal && firstPlaybackNotStarted) {
         try {
@@ -736,10 +638,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
     if (videoRef.current) {
       const v = videoRef.current;
-      const onPlay = () => dispatch({ type: 'play' } as any);
-      const onPause = () => dispatch({ type: 'pause' } as any);
+      const onPlay = () => dispatch({ type: "play" } as any);
+      const onPause = () => dispatch({ type: "pause" } as any);
       const onWaiting = () => {
-        if (state.state === 'playing' && !adActiveRef.current) scheduleStallWatch('waiting_event');
+        if (state.state === "playing" && !adActiveRef.current) scheduleStallWatch("waiting_event");
       };
       const onVol = () => {
         const vv = Number.isFinite(v.volume) ? v.volume : volume;
@@ -748,10 +650,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
         engine.setVolume?.(vv);
         engine.setMuted?.(v.muted);
       };
-      v.addEventListener('playing', onPlay);
-      v.addEventListener('pause', onPause);
-      v.addEventListener('waiting', onWaiting);
-      v.addEventListener('volumechange', onVol);
+      v.addEventListener("playing", onPlay);
+      v.addEventListener("pause", onPause);
+      v.addEventListener("waiting", onWaiting);
+      v.addEventListener("volumechange", onVol);
 
       return () => {
         try {
@@ -782,10 +684,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
           engine.detach?.();
           engine.destroy?.();
         } catch {}
-        v.removeEventListener('playing', onPlay);
-        v.removeEventListener('pause', onPause);
-        v.removeEventListener('waiting', onWaiting);
-        v.removeEventListener('volumechange', onVol);
+        v.removeEventListener("playing", onPlay);
+        v.removeEventListener("pause", onPause);
+        v.removeEventListener("waiting", onWaiting);
+        v.removeEventListener("volumechange", onVol);
       };
     }
 
@@ -827,7 +729,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
     const push = async (t: number) => {
       if (adActive || t < 5) return;
       try {
-        if (typeof storage.setResume === 'function') await storage.setResume(`vod:${source.id}`, t);
+        if (typeof storage.setResume === "function") await storage.setResume(`vod:${source.id}`, t);
         else {
           const p = (await storage.getPrefs(`vod:${source.id}`)) ?? ({} as any);
           await storage.setPrefs(`vod:${source.id}`, { ...(p as any), lastTime: t } as any);
@@ -840,14 +742,14 @@ const InnerPlayer = React.memo(function InnerPlayer({
     }, 3000);
     const v = videoRef.current;
     const onPauseSave = () => void push(engine.getCurrentTime?.() ?? 0);
-    const unSeekEnd = engine.on?.('engine_seek_end', () => void push(engine.getCurrentTime?.() ?? 0));
-    if (v) v.addEventListener('pause', onPauseSave);
+    const unSeekEnd = engine.on?.("engine_seek_end", () => void push(engine.getCurrentTime?.() ?? 0));
+    if (v) v.addEventListener("pause", onPauseSave);
     return () => {
       window.clearInterval(i);
       try {
         unSeekEnd?.();
       } catch {}
-      if (v) v.removeEventListener('pause', onPauseSave);
+      if (v) v.removeEventListener("pause", onPauseSave);
     };
   }, [engine, adActive, storage, source.id]);
 
@@ -858,11 +760,11 @@ const InnerPlayer = React.memo(function InnerPlayer({
     let lastT = v.currentTime;
     const id = window.setInterval(() => {
       if (adActiveRef.current) return;
-      const uiPlaying = state.state === 'playing';
+      const uiPlaying = state.state === "playing";
       const elPlaying = !v.paused && !v.ended && v.readyState > 2;
       const progressed = v.currentTime > lastT + 0.05;
       if (uiPlaying && (!elPlaying || !progressed)) {
-        scheduleStallWatch('ui_playing_but_frozen');
+        scheduleStallWatch("ui_playing_but_frozen");
       }
       lastT = v.currentTime;
     }, 1200);
@@ -876,11 +778,11 @@ const InnerPlayer = React.memo(function InnerPlayer({
     let last = v.currentTime;
     let raf = 0;
     const loop = () => {
-      const inBuffer = state.state === 'buffering' || state.state === 'loading' || state.state === 'seeking';
+      const inBuffer = state.state === "buffering" || state.state === "loading" || state.state === "seeking";
       const progressed = v.currentTime > last + 0.06;
       if (!adActiveRef.current && inBuffer && progressed) {
         try {
-          (dispatch as any)({ type: 'buffer_end' });
+          (dispatch as any)({ type: "buffer_end" });
         } catch {}
       }
       last = v.currentTime;
@@ -904,8 +806,8 @@ const InnerPlayer = React.memo(function InnerPlayer({
   const handleSeekChange = (value: number[]) => {
     const to = value[0];
     if (scrub === null) {
-      setWasPlayingOnScrub(state.state === 'playing');
-      dispatch({ type: 'seek_start' } as any);
+      setWasPlayingOnScrub(state.state === "playing");
+      dispatch({ type: "seek_start" } as any);
       setInteractionLock(true);
     }
     setScrub(to);
@@ -923,15 +825,15 @@ const InnerPlayer = React.memo(function InnerPlayer({
       const notCrazy = Number.isFinite(snapped) && Math.abs((snapped as number) - target) <= 30;
       if (within && notCrazy && snapped! !== target) {
         target = snapped as number;
-        announce?.(t('tooltip.adBreak'));
+        announce?.(t("tooltip.adBreak"));
       }
     }
     engine.seekTo?.(target);
     setCurrentTime(target);
-    dispatch({ type: 'seek_end' } as any);
+    dispatch({ type: "seek_end" } as any);
     setScrub(null);
     setInteractionLock(false);
-    if (wasPlayingOnScrub && state.state !== 'playing') {
+    if (wasPlayingOnScrub && state.state !== "playing") {
       await tryPlayWithEventDispatch();
     }
     ping();
@@ -941,7 +843,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
   const [castAvailable, setCastAvailable] = React.useState(false);
   const [airplayAvailable, setAirplayAvailable] = React.useState(false);
   React.useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       try {
         setCastAvailable(!!(window as any).cast && !!(window as any).chrome);
       } catch {}
@@ -957,10 +859,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
     } catch {}
   }, []);
 
-  const selectedText = React.useMemo(
-    () => (textId ? texts.find((t: { id: any }) => t.id === textId) : undefined),
-    [texts, textId],
-  );
+  const selectedText = React.useMemo(() => (textId ? texts.find((t: { id: any }) => t.id === textId) : undefined), [texts, textId]);
 
   // Combine CSAI schedule + SSAI ranges
   const adMarkersCombined = React.useMemo(() => {
@@ -970,7 +869,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
   // Briefly re-expand the unmute pill when controls appear while muted & playing (mobile)
   React.useEffect(() => {
-    if (!isMobileResolved || adActive || !muted || state.state !== 'playing') return;
+    if (!isMobileResolved || adActive || !muted || state.state !== "playing") return;
     if (controlsVisible) {
       setUnmuteHint(true);
       const id = window.setTimeout(() => setUnmuteHint(false), 1000);
@@ -979,48 +878,30 @@ const InnerPlayer = React.memo(function InnerPlayer({
   }, [controlsVisible, isMobileResolved, adActive, muted, state.state]);
 
   // MOBILE controls visibility:
-  const tapUnmuteActive = isMobileResolved && state.state === 'playing' && muted && !adActive;
-  const mobileControlsVisible =
-    isMobileResolved && !tapUnmuteActive && !adActive && (controlsVisible || state.state === 'ended' || showLoading);
+  const tapUnmuteActive = isMobileResolved && state.state === "playing" && muted && !adActive;
+  const mobileControlsVisible = isMobileResolved && !tapUnmuteActive && !adActive && (controlsVisible || state.state === "ended" || showLoading);
 
   return (
-    <div
-      ref={containerRef}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onContainerPointerUp}
-      onPointerUpCapture={onContainerPointerUpCapture}
-      className={cn(
-        'player-v2 relative w-full overflow-hidden bg-black outline-none',
-        hideCursor ? 'cursor-none' : 'cursor-auto',
-        className,
-      )}
-      aria-label={t('a11y.playerRegion')}
-      role="region"
-      lang={lang}
-      dir={dir}
-      suppressHydrationWarning
-    >
+    <div ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} onPointerMove={onPointerMove} onPointerUp={onContainerPointerUp} onPointerUpCapture={onContainerPointerUpCapture} className={cn("player-v2 relative w-full overflow-hidden bg-black outline-none", hideCursor ? "cursor-none" : "cursor-auto", className)} aria-label={t("a11y.playerRegion")} role="region" lang={lang} dir={dir} suppressHydrationWarning>
       <OfflineBanner online={online} />
 
       <MediaSurface
         videoRef={videoRef as any}
         poster={source.poster}
-        hideCursor={state.state === 'playing' && !controlsVisible}
+        hideCursor={state.state === "playing" && !controlsVisible}
         onTogglePlay={onSurfaceToggle}
         showLoading={showLoading}
-        showCenterPlay={state.state === 'paused' && currentTime < 0.05}
+        showCenterPlay={state.state === "paused" && currentTime < 0.05}
         showEnded={showEnded}
         showError={showError}
-        errorMessage={t('overlays.errorGeneric')}
+        errorMessage={t("overlays.errorGeneric")}
         onRetry={() => {
           (async () => {
             try {
               await storage.setResume(`vod:${source.id}`, 0);
             } catch {}
           })();
-          dispatch({ type: 'retry' } as any);
+          dispatch({ type: "retry" } as any);
           engine.load?.(source);
         }}
         seekBy={seekBy}
@@ -1045,7 +926,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
         {/* Controls: render ONLY after mount to avoid SSR hydration mismatches */}
         {isDesktopResolved === true ? (
           <ControlsBar
-            chapterTicks={(source.chapters ?? []).map((c) => ({ at: c.start, title: c.title || '' }))}
+            chapterTicks={(source.chapters ?? []).map((c) => ({ at: c.start, title: c.title || "" }))}
             adMarkers={adMarkersCombined}
             controlsVisible={controlsVisible}
             onPointerEnter={() => onControlsPointerEnter()}
@@ -1061,7 +942,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
             scrub={scrub}
             onSeekChange={handleSeekChange}
             onSeekCommit={handleSeekCommit}
-            playing={state.state === 'playing'}
+            playing={state.state === "playing"}
             onTogglePlay={togglePlay}
             muted={muted}
             volume={volume}
@@ -1137,7 +1018,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
             onSeekChange={handleSeekChange}
             onSeekCommit={handleSeekCommit}
             updateFromRatio={updateFromRatio}
-            playing={state.state === 'playing'}
+            playing={state.state === "playing"}
             onTogglePlay={togglePlay}
             duration={duration}
             onTogglePiP={togglePiP}
@@ -1171,7 +1052,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
             levelSelection={levelSel}
             onChangeLevel={(sel) => {
               setLevelSel(sel);
-              if (sel === 'auto') engine.setLevel?.('auto');
+              if (sel === "auto") engine.setLevel?.("auto");
               else engine.setLevel?.({ id: (sel as any).id });
             }}
             rate={rate}
@@ -1217,7 +1098,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
             levelSelection={levelSel}
             onChangeLevel={(sel) => {
               setLevelSel(sel);
-              if (sel === 'auto') engine.setLevel?.('auto');
+              if (sel === "auto") engine.setLevel?.("auto");
               else engine.setLevel?.({ id: (sel as any).id });
             }}
             rate={rate}
