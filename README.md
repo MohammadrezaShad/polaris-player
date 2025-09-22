@@ -158,35 +158,6 @@ Wire your own analytics & persistence through ports:
 
 - **StoragePort** (optional) for user prefs & resume:
 
-```ts
-export interface StoragePort {
-  getPrefs(key: string): Promise<UserPrefs | null>;
-  setPrefs(key: string, prefs: UserPrefs): Promise<void>;
-  getResume(key: string): Promise<number | null>;
-  setResume(key: string, seconds: number): Promise<void>;
-  clearAll?(): Promise<void>;
-  setConsent?(v: boolean): void;
-  isConsentGranted?(): boolean;
-}
-```
-
-See `providers/player-provider` & hooks for extension points.
-
----
-
-## ▶️ DASH (optional)
-
-If you need MPEG‑DASH:
-
-1. Install Shaka in your **app**:
-
-```bash
-npm i shaka-player
-```
-
-2. Use `type: 'dash'` and a `.mpd` URL in `source`.
-3. The library marks Shaka as **external**, so it’s resolved at runtime from the app’s `node_modules`.
-
 ---
 
 ## 🧪 Local testing (before publishing)
