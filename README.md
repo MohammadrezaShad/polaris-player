@@ -1,13 +1,13 @@
 # Polaris Player (Next.js + Tailwind + shadcn)
 
-Reusable, framework‑friendly video player for HLS / MP4 (and optional DASH) with a clean UI and sensible defaults. Designed for Next.js apps that already use Tailwind and shadcn‑style primitives.
+Reusable, framework‑friendly video player for HLS / MP4 and DASH with a clean UI and sensible defaults. Designed for Next.js apps that already use Tailwind and shadcn‑style primitives.
 
 ---
 
 ## ✨ Features
 
 - **HLS & MP4** out of the box (HLS via `hls.js`)
-- **Optional DASH** (via Shaka Player, opt‑in)
+- **DASH** (via Shaka Player, opt‑in)
 - **Mobile‑first UI**, i18n provider, captions, thumbnails (VTT / JSON)
 - **Autoplay `smart/on/off`**, PiP, fullscreen, buffered bar, overlays
 - **Extensible ports** for analytics & storage
