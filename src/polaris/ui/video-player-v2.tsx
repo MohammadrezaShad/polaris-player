@@ -70,7 +70,7 @@ type Props = {
   className?: string;
 };
 
-export default function VideoPlayerV2({ source, analyticsEndpoint, hasAnalytics = false, embedCtx, playerVersion = "v2.7-refactor-final", autoplayMode = "smart", autoplayVolume = 1, locale = "en", className, onFirstVideoLoaded }: Props) {
+export default function VideoPlayer({ source, analyticsEndpoint, hasAnalytics = false, embedCtx, playerVersion = "v2.7-refactor-final", autoplayMode = "smart", autoplayVolume = 1, locale = "en", className, onFirstVideoLoaded }: Props) {
   // Avoid random on the server render to keep SSR/CSR stable
   const sessionRef = React.useRef<string | null>(null);
   if (sessionRef.current == null) {

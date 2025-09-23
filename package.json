@@ -1,23 +1,31 @@
 {
   "name": "polaris-player",
-  "publishConfig": {
-    "access": "public"
-  },
   "version": "0.1.12",
   "description": "Polaris Player – reusable Next.js/Tailwind/shadcn video player",
-  "license": "MIT",
-  "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
+  "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "import": "./dist/index.esm.mjs",
       "require": "./dist/index.cjs"
     },
-    "./tailwind-preset": "./tailwind-preset.cjs",
-    "./styles.css": "./styles.css"
+    "./styles.css": "./styles.css",
+    "./tailwind-preset": "./tailwind-preset.cjs"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsup && node scripts/create-client-entry.cjs",
+    "prepublishOnly": "npm run build"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",
@@ -25,14 +33,6 @@
     "styles.css",
     "README.md"
   ],
-  "sideEffects": [
-    "*.css"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "npm run build"
-  },
   "peerDependencies": {
     "@radix-ui/react-accordion": "*",
     "@radix-ui/react-alert-dialog": "*",
