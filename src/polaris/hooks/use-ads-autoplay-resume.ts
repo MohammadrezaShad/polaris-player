@@ -1,6 +1,6 @@
-'use client';
-import { useAdManager } from '../ads/ad-manager';
-import * as React from 'react';
+"use client";
+import { useAdManager } from "../ads/ad-manager";
+import * as React from "react";
 
 function bufferedAhead(video: HTMLVideoElement | null, at: number): number {
   if (!video) return 0;
@@ -13,32 +13,8 @@ function bufferedAhead(video: HTMLVideoElement | null, at: number): number {
   return 0;
 }
 
-export function useAdsAutoplayResume(params: {
-  engine: any;
-  source: any;
-  analytics: any;
-  duration: number;
-  currentTime: number;
-  videoRef: React.RefObject<HTMLVideoElement>;
-  adVideoRef: React.RefObject<HTMLVideoElement>;
-  autoplayMode: 'off' | 'on' | 'smart';
-  onDispatch: (type: 'play' | 'pause') => void;
-  scheduleStallWatch: (reason: string) => void;
-  onAutoplayMuted?: () => void;
-}) {
-  const {
-    engine,
-    source,
-    analytics,
-    duration,
-    currentTime,
-    videoRef,
-    adVideoRef,
-    autoplayMode,
-    onDispatch,
-    scheduleStallWatch,
-    onAutoplayMuted,
-  } = params;
+export function useAdsAutoplayResume(params: { engine: any; source: any; analytics: any; duration: number; currentTime: number; videoRef: React.RefObject<HTMLVideoElement>; adVideoRef: React.RefObject<HTMLVideoElement>; autoplayMode: "off" | "on" | "smart"; onDispatch: (type: "play" | "pause") => void; scheduleStallWatch: (reason: string) => void; onAutoplayMuted?: () => void }) {
+  const { engine, source, analytics, duration, currentTime, videoRef, adVideoRef, autoplayMode, onDispatch, scheduleStallWatch, onAutoplayMuted } = params;
 
   const [adActive, setAdActive] = React.useState(false);
   const adActiveRef = React.useRef(false);
@@ -46,11 +22,12 @@ export function useAdsAutoplayResume(params: {
     adActiveRef.current = adActive;
   }, [adActive]);
 
-  // preroll flags
   const hasPreroll = React.useMemo(() => {
-    const s = source.ads?.schedule;
-    return Boolean((s && s.prerollTag) || source.ads?.vmapUrl);
-  }, [source.ads]);
+    const s = source?.ads?.schedule;
+    const breaks = s?.breaks ?? [];
+    return breaks.some((b: any) => b?.kind === "preroll");
+  }, [source?.ads?.schedule]);
+
   const adsPrerollPendingRef = React.useRef<boolean>(false);
   const prerollServedRef = React.useRef<boolean>(false);
   const wasPlayingBeforeAdRef = React.useRef(false);
@@ -59,6 +36,23 @@ export function useAdsAutoplayResume(params: {
     adsPrerollPendingRef.current = hasPreroll;
     prerollServedRef.current = false;
   }, [hasPreroll, source.id]);
+
+  // If we expected a preroll but nothing starts soon, fall back to content
+  React.useEffect(() => {
+    if (!hasPreroll) return;
+    // if an ad becomes active, do nothing
+    if (adActiveRef.current) return;
+    const id = window.setTimeout(async () => {
+      if (!adActiveRef.current && adsPrerollPendingRef.current) {
+        // Ad didn’t start quickly; clear guard and start content
+        adsPrerollPendingRef.current = false;
+        try {
+          await tryPlayWithEventDispatch();
+        } catch {}
+      }
+    }, 1500); // 1.5s is a good compromise: fast resume without killing real preroll
+    return () => window.clearTimeout(id);
+  }, [hasPreroll /* keep lightweight deps */]);
 
   // guard main element during ads
   const adPlaybackGuardRef = React.useRef<((e?: any) => void) | null>(null);
@@ -79,10 +73,14 @@ export function useAdsAutoplayResume(params: {
     let usedMutedFallback = false;
     const onPlaying = () => {
       resolved = true;
-      onDispatch('play');
+      onDispatch("play");
       try {
         const vnow = videoRef.current!;
         if (usedMutedFallback) {
+          try {
+            vnow.dispatchEvent(new Event("volumechange"));
+          } catch {}
+
           vnow.muted = false;
           (engine as any).setMuted?.(false);
           setTimeout(() => {
@@ -91,7 +89,7 @@ export function useAdsAutoplayResume(params: {
         }
       } catch {}
     };
-    v.addEventListener('playing', onPlaying, { once: true });
+    v.addEventListener("playing", onPlaying, { once: true });
     try {
       await (engine.play?.() ?? v.play?.());
     } catch {
@@ -102,7 +100,7 @@ export function useAdsAutoplayResume(params: {
         await (engine.play?.() ?? v.play?.());
       } catch {}
     }
-    window.setTimeout(() => v.removeEventListener('playing', onPlaying), 2500);
+    window.setTimeout(() => v.removeEventListener("playing", onPlaying), 2500);
     return { resolved, usedMutedFallback };
   }, [engine, videoRef, onDispatch, onAutoplayMuted]);
 
@@ -140,36 +138,28 @@ export function useAdsAutoplayResume(params: {
   }, [adActive, engine, tryPlayWithEventDispatch, videoRef]);
 
   const resumeMainAfterAd = React.useCallback(
-    async (reason: 'ads_resume' | 'ads_skip' | 'ads_error') => {
+    async (reason: "ads_resume" | "ads_skip" | "ads_error") => {
       setAdActive(false);
       try {
-        if (adPlaybackGuardRef.current) videoRef.current?.removeEventListener('play', adPlaybackGuardRef.current);
+        if (adPlaybackGuardRef.current) videoRef.current?.removeEventListener("play", adPlaybackGuardRef.current);
       } catch {}
       adPlaybackGuardRef.current = null;
       restoreMediaSettingsAfterAds();
 
-      const shouldResume = wasPlayingBeforeAdRef.current || autoplayMode === 'on' || autoplayMode === 'smart';
+      const shouldResume = wasPlayingBeforeAdRef.current || autoplayMode === "on" || autoplayMode === "smart";
       wasPlayingBeforeAdRef.current = false;
       if (shouldResume) {
         const res = await tryPlayWithEventDispatch();
         if (!res.resolved) {
           try {
             await (engine.play?.() ?? videoRef.current?.play?.());
-            onDispatch('play');
+            onDispatch("play");
           } catch {}
         }
         scheduleStallWatch(reason);
       }
     },
-    [
-      restoreMediaSettingsAfterAds,
-      tryPlayWithEventDispatch,
-      scheduleStallWatch,
-      autoplayMode,
-      engine,
-      videoRef,
-      onDispatch,
-    ],
+    [restoreMediaSettingsAfterAds, tryPlayWithEventDispatch, scheduleStallWatch, autoplayMode, engine, videoRef, onDispatch]
   );
 
   // stable schedule
@@ -181,12 +171,9 @@ export function useAdsAutoplayResume(params: {
       return;
     }
     const breaks: any[] = [];
-    if (s.prerollTag && !prerollServedRef.current)
-      breaks.push({ id: 'preroll', kind: 'preroll', vastTagUrl: s.prerollTag });
-    (s.midrolls ?? []).forEach((m: any, i: number) =>
-      breaks.push({ id: `mid_${i}`, kind: 'midroll', timeOffsetSec: m.at, vastTagUrl: m.tag }),
-    );
-    if (s.postrollTag) breaks.push({ id: 'postroll', kind: 'postroll', vastTagUrl: s.postrollTag });
+    if (s.prerollTag && !prerollServedRef.current) breaks.push({ id: "preroll", kind: "preroll", vastTagUrl: s.prerollTag });
+    (s.midrolls ?? []).forEach((m: any, i: number) => breaks.push({ id: `mid_${i}`, kind: "midroll", timeOffsetSec: m.at, vastTagUrl: m.tag }));
+    if (s.postrollTag) breaks.push({ id: "postroll", kind: "postroll", vastTagUrl: s.postrollTag });
     setStableSchedule({ breaks });
   }, [source.id, source.ads]);
 
@@ -216,11 +203,11 @@ export function useAdsAutoplayResume(params: {
           }
         };
         adPlaybackGuardRef.current = guard;
-        videoRef.current?.addEventListener('play', guard);
+        videoRef.current?.addEventListener("play", guard);
       } catch {}
     },
     onResumeMain: () => {
-      void resumeMainAfterAd('ads_resume');
+      void resumeMainAfterAd("ads_resume");
     },
     analyticsEmit: (e: any) => analytics.emit(e),
   });
@@ -228,9 +215,9 @@ export function useAdsAutoplayResume(params: {
   // ad events to resume
   React.useEffect(() => {
     const a: any = ads as any;
-    const offSkipped = a?.on?.('ad_skipped', () => void resumeMainAfterAd('ads_skip'));
-    const offEnded = a?.on?.('ad_break_ended', () => void resumeMainAfterAd('ads_resume'));
-    const offError = a?.on?.('ad_error', () => void resumeMainAfterAd('ads_error'));
+    const offSkipped = a?.on?.("ad_skipped", () => void resumeMainAfterAd("ads_skip"));
+    const offEnded = a?.on?.("ad_break_ended", () => void resumeMainAfterAd("ads_resume"));
+    const offError = a?.on?.("ad_error", () => void resumeMainAfterAd("ads_error"));
     return () => {
       try {
         offSkipped?.();
@@ -245,10 +232,10 @@ export function useAdsAutoplayResume(params: {
     const el = adVideoRef.current;
     if (!el) return;
     const onEnded = () => {
-      if (adActiveRef.current) void resumeMainAfterAd('ads_resume');
+      if (adActiveRef.current) void resumeMainAfterAd("ads_resume");
     };
-    el.addEventListener('ended', onEnded);
-    return () => el.removeEventListener('ended', onEnded);
+    el.addEventListener("ended", onEnded);
+    return () => el.removeEventListener("ended", onEnded);
   }, [adVideoRef, resumeMainAfterAd]);
 
   // ad markers from schedule
@@ -267,19 +254,15 @@ export function useAdsAutoplayResume(params: {
     async (targ: number) => {
       engine.pause?.();
       videoRef.current?.pause?.();
-      engine.setLevel?.('auto' as any);
+      engine.setLevel?.("auto" as any);
       engine.seekTo?.(targ);
       const start = Date.now();
-      while (
-        Date.now() - start < 3500 &&
-        bufferedAhead(videoRef.current!, targ) < 1 &&
-        (videoRef.current?.readyState ?? 0) < 3
-      ) {
+      while (Date.now() - start < 3500 && bufferedAhead(videoRef.current!, targ) < 1 && (videoRef.current?.readyState ?? 0) < 3) {
         await new Promise((r) => setTimeout(r, 140));
       }
       return bufferedAhead(videoRef.current!, targ) >= 0.5 || (videoRef.current?.readyState ?? 0) >= 3;
     },
-    [engine, videoRef],
+    [engine, videoRef]
   );
 
   return { ads, adActive, adActiveRef, adMarkers, gatedPlay, tryPlayWithEventDispatch, tryPrimeAt };
