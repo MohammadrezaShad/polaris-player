@@ -22,11 +22,12 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     adActiveRef.current = adActive;
   }, [adActive]);
 
-  // preroll flags
   const hasPreroll = React.useMemo(() => {
-    const s = source.ads?.schedule;
-    return Boolean((s && s.prerollTag) || source.ads?.vmapUrl);
-  }, [source.ads]);
+    const s = source?.ads?.schedule;
+    const breaks = s?.breaks ?? [];
+    return breaks.some((b: any) => b?.kind === "preroll");
+  }, [source?.ads?.schedule]);
+
   const adsPrerollPendingRef = React.useRef<boolean>(false);
   const prerollServedRef = React.useRef<boolean>(false);
   const wasPlayingBeforeAdRef = React.useRef(false);
@@ -35,6 +36,23 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     adsPrerollPendingRef.current = hasPreroll;
     prerollServedRef.current = false;
   }, [hasPreroll, source.id]);
+
+  // If we expected a preroll but nothing starts soon, fall back to content
+  React.useEffect(() => {
+    if (!hasPreroll) return;
+    // if an ad becomes active, do nothing
+    if (adActiveRef.current) return;
+    const id = window.setTimeout(async () => {
+      if (!adActiveRef.current && adsPrerollPendingRef.current) {
+        // Ad didn’t start quickly; clear guard and start content
+        adsPrerollPendingRef.current = false;
+        try {
+          await tryPlayWithEventDispatch();
+        } catch {}
+      }
+    }, 1500); // 1.5s is a good compromise: fast resume without killing real preroll
+    return () => window.clearTimeout(id);
+  }, [hasPreroll /* keep lightweight deps */]);
 
   // guard main element during ads
   const adPlaybackGuardRef = React.useRef<((e?: any) => void) | null>(null);
@@ -59,6 +77,10 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
       try {
         const vnow = videoRef.current!;
         if (usedMutedFallback) {
+          try {
+            vnow.dispatchEvent(new Event("volumechange"));
+          } catch {}
+
           vnow.muted = false;
           (engine as any).setMuted?.(false);
           setTimeout(() => {
