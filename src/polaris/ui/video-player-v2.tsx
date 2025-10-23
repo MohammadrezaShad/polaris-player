@@ -138,10 +138,26 @@ const InnerPlayer = React.memo(function InnerPlayer({
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
 }) {
+  // For first-load autoplay: render <video muted> so browsers allow autoplay
+  const initialMutedAttr = React.useMemo(() => autoplayMode !== "off", [autoplayMode]);
   const { t, dir, lang, announce } = useI18n();
 
   // Refs
   const videoRef = React.useRef<HTMLVideoElement>(null as any);
+  /* pre-seed muted for autoplay */
+  React.useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (autoplayMode !== "off") {
+      try {
+        v.muted = true;
+      } catch {}
+      try {
+        if ((v.volume ?? 1) > 0) v.volume = 0;
+      } catch {}
+    }
+  }, []);
+
   const adVideoRef = React.useRef<HTMLVideoElement>(null as any);
   const containerRef = React.useRef<HTMLDivElement>(null as any);
   const settingsBtnRef = React.useRef<HTMLButtonElement>(null as any);
@@ -212,6 +228,15 @@ const InnerPlayer = React.memo(function InnerPlayer({
   useResilience({ engine, source, onState: setResState });
 
   // Prefs + persistence
+
+  /* align muted pref on first mount for autoplay */
+  React.useEffect(() => {
+    if (autoplayMode !== "off" && !muted) {
+      try {
+        setMuted(true);
+      } catch {}
+    }
+  }, []);
   const prefs = usePersistenceAndPrefs({ engine: engine as any, storage, sourceId: source.id, videoRef });
   const { volume, setVolume, muted, setMuted, rate, setRate, dataSaver, setDataSaver, persistOn, setPersistOn, levels, audios, texts, textId, setTextId, cc, setCc, audioId, setAudioId, levelSel, setLevelSel, refreshTracks } = prefs;
 
@@ -887,6 +912,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
       <MediaSurface
         videoRef={videoRef as any}
+        initialMutedAttr={initialMutedAttr}
         poster={source.poster}
         hideCursor={state.state === "playing" && !controlsVisible}
         onTogglePlay={onSurfaceToggle}
