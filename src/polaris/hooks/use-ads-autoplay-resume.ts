@@ -1,6 +1,7 @@
 "use client";
-import { useAdManager } from "../ads/ad-manager";
 import * as React from "react";
+
+import { useAdManager } from "../ads/ad-manager";
 
 function bufferedAhead(video: HTMLVideoElement | null, at: number): number {
   if (!video) return 0;
@@ -22,12 +23,11 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     adActiveRef.current = adActive;
   }, [adActive]);
 
+  // preroll flags
   const hasPreroll = React.useMemo(() => {
-    const s = source?.ads?.schedule;
-    const breaks = s?.breaks ?? [];
-    return breaks.some((b: any) => b?.kind === "preroll");
-  }, [source?.ads?.schedule]);
-
+    const s = source.ads?.schedule;
+    return Boolean((s && s.prerollTag) || source.ads?.vmapUrl);
+  }, [source.ads]);
   const adsPrerollPendingRef = React.useRef<boolean>(false);
   const prerollServedRef = React.useRef<boolean>(false);
   const wasPlayingBeforeAdRef = React.useRef(false);
@@ -36,23 +36,6 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     adsPrerollPendingRef.current = hasPreroll;
     prerollServedRef.current = false;
   }, [hasPreroll, source.id]);
-
-  // If we expected a preroll but nothing starts soon, fall back to content
-  React.useEffect(() => {
-    if (!hasPreroll) return;
-    // if an ad becomes active, do nothing
-    if (adActiveRef.current) return;
-    const id = window.setTimeout(async () => {
-      if (!adActiveRef.current && adsPrerollPendingRef.current) {
-        // Ad didn’t start quickly; clear guard and start content
-        adsPrerollPendingRef.current = false;
-        try {
-          await tryPlayWithEventDispatch();
-        } catch {}
-      }
-    }, 1500); // 1.5s is a good compromise: fast resume without killing real preroll
-    return () => window.clearTimeout(id);
-  }, [hasPreroll /* keep lightweight deps */]);
 
   // guard main element during ads
   const adPlaybackGuardRef = React.useRef<((e?: any) => void) | null>(null);
@@ -69,37 +52,42 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
   const tryPlayWithEventDispatch = React.useCallback(async () => {
     const v = videoRef.current;
     if (!v || adActiveRef.current) return { resolved: false, usedMutedFallback: false };
+
     let resolved = false;
     let usedMutedFallback = false;
+
+    console.log("Attempting play with current audio settings");
+
     const onPlaying = () => {
       resolved = true;
       onDispatch("play");
-      try {
-        const vnow = videoRef.current!;
-        if (usedMutedFallback) {
-          try {
-            vnow.dispatchEvent(new Event("volumechange"));
-          } catch {}
-
-          vnow.muted = false;
-          (engine as any).setMuted?.(false);
-          setTimeout(() => {
-            if (vnow.muted) onAutoplayMuted?.();
-          }, 60);
-        }
-      } catch {}
+      // Only show hint if we force-muted due to fallback (avoids hint if user-prefs are muted)
+      if (usedMutedFallback) {
+        setTimeout(() => {
+          if (v.muted) onAutoplayMuted?.(); // Show unmute hint
+        }, 60);
+      }
     };
     v.addEventListener("playing", onPlaying, { once: true });
+
     try {
       await (engine.play?.() ?? v.play?.());
-    } catch {
+      console.log("Play succeeded with current settings");
+    } catch (err: any) {
+      console.error("Initial play failed:", err.name, err.message);
+      // Fallback: Force muted only if initial fails (policy block)
       try {
         engine.setMuted?.(true);
         v.muted = true;
         usedMutedFallback = true;
         await (engine.play?.() ?? v.play?.());
-      } catch {}
+        console.log("Muted fallback play succeeded");
+      } catch (mutedErr: any) {
+        console.error("Muted fallback failed:", mutedErr.name, mutedErr.message);
+        // Optional: Set state for "tap to play" overlay here if needed
+      }
     }
+
     window.setTimeout(() => v.removeEventListener("playing", onPlaying), 2500);
     return { resolved, usedMutedFallback };
   }, [engine, videoRef, onDispatch, onAutoplayMuted]);
@@ -107,16 +95,6 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
   const gatedPlay = React.useCallback(async (): Promise<boolean> => {
     const v = videoRef.current;
     if (!v) return false;
-    // Ensure muted prior to first autoplay attempt so Chrome/iOS allow it
-    try {
-      if (autoplayMode !== "off") {
-        engine.setMuted?.(true);
-        v.muted = true;
-        engine.setVolume?.(0);
-        v.volume = 0;
-      }
-    } catch {}
-
     if (adActive || adActiveRef.current) {
       wasPlayingBeforeAdRef.current = true;
       return false;
@@ -160,7 +138,7 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
       wasPlayingBeforeAdRef.current = false;
       if (shouldResume) {
         const res = await tryPlayWithEventDispatch();
-        if (!res.resolved) {
+        if (!res?.resolved) {
           try {
             await (engine.play?.() ?? videoRef.current?.play?.());
             onDispatch("play");

@@ -1,10 +1,8 @@
 /** src/player/adapters/thumbs/vtt-thumbs-adapter.ts */
-'use client';
+"use client";
 
 export type ThumbRegionPx = { x: number; y: number; w: number; h: number };
-export type ThumbRegion =
-  | (ThumbRegionPx & { isPercent?: false })
-  | { x: number; y: number; w: number; h: number; isPercent: true };
+export type ThumbRegion = (ThumbRegionPx & { isPercent?: false }) | { x: number; y: number; w: number; h: number; isPercent: true };
 export type ThumbCue = { start: number; end: number; src: string; region: ThumbRegion };
 
 export interface VttThumbs {
@@ -14,7 +12,7 @@ export interface VttThumbs {
 }
 
 function parseTime(s: string): number {
-  const parts = s.trim().split(':');
+  const parts = s.trim().split(":");
   let sec = 0;
   if (parts.length === 3) sec = Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
   else if (parts.length === 2) sec = Number(parts[0]) * 60 + Number(parts[1]);
@@ -30,9 +28,9 @@ function parseRegion(hash: string): { x: number; y: number; w: number; h: number
   let nums: string;
   if (/^percent[: ,]/i.test(val)) {
     isPercent = true;
-    nums = val.replace(/^percent[: ,]*/i, '');
+    nums = val.replace(/^percent[: ,]*/i, "");
   } else if (/^pixels?[: ]/i.test(val)) {
-    nums = val.replace(/^pixels?[: ]*/i, '');
+    nums = val.replace(/^pixels?[: ]*/i, "");
   } else {
     nums = val;
   }
@@ -43,17 +41,15 @@ function parseRegion(hash: string): { x: number; y: number; w: number; h: number
 }
 
 export async function createVttThumbs(vttUrl: string, opts?: { baseUrl?: string }): Promise<VttThumbs> {
-  const res = await fetch(vttUrl, { cache: 'force-cache' });
-  const text = await res.text();
+  const text = await fetchTextCached(vttUrl, { stripParams: ["cb", "ts", "t"] });
   const cues: ThumbCue[] = [];
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   let i = 0;
   while (i < lines.length) {
     const line = lines[i].trim();
     i++;
     if (!line) continue;
-    if (line.startsWith('WEBVTT') || line.startsWith('NOTE') || line.startsWith('STYLE') || line.startsWith('REGION'))
-      continue;
+    if (line.startsWith("WEBVTT") || line.startsWith("NOTE") || line.startsWith("STYLE") || line.startsWith("REGION")) continue;
     let startLine = line;
     if (!/-->/.test(startLine) && i < lines.length) {
       startLine = lines[i].trim();
@@ -63,17 +59,17 @@ export async function createVttThumbs(vttUrl: string, opts?: { baseUrl?: string 
     if (!m) continue;
     const start = parseTime(m[1]);
     const end = parseTime(m[2]);
-    let payload = '';
-    while (i < lines.length && lines[i].trim() !== '') {
+    let payload = "";
+    while (i < lines.length && lines[i].trim() !== "") {
       const pl = lines[i].trim();
-      payload += (payload ? ' ' : '') + pl;
+      payload += (payload ? " " : "") + pl;
       i++;
     }
     const srcMatch = /(.*?)(#.*)?$/.exec(payload);
     if (!srcMatch) continue;
-    const srcRaw = (srcMatch[1] || '').trim();
-    const hash = (srcMatch[2] || '').trim();
-    const region = parseRegion(hash || '');
+    const srcRaw = (srcMatch[1] || "").trim();
+    const hash = (srcMatch[2] || "").trim();
+    const region = parseRegion(hash || "");
     if (!srcRaw || !region) continue;
     const base = opts?.baseUrl || vttUrl;
     const resolved = new URL(srcRaw, base).toString();
@@ -87,7 +83,7 @@ export async function createVttThumbs(vttUrl: string, opts?: { baseUrl?: string 
     if (imgCache.has(src)) return Promise.resolve(imgCache.get(src)!);
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      img.crossOrigin = "anonymous";
       img.onload = () => {
         if (!disposed) {
           imgCache.set(src, img);
@@ -126,4 +122,34 @@ export async function createVttThumbs(vttUrl: string, opts?: { baseUrl?: string 
   }
 
   return { at, warmup, dispose };
+}
+const textCache = new Map<string, Promise<string>>();
+
+/** Fetches a text (VTT) once, returns the same promise thereafter. */
+export function fetchTextCached(url: string, { stripParams = [] as string[] } = {}) {
+  const key = normalizeKey(url, stripParams);
+  if (!textCache.has(key)) {
+    const p = fetch(url, { method: "GET", cache: "force-cache", credentials: "omit" }).then(async (r) => {
+      if (!r.ok) throw new Error(`VTT fetch failed: ${r.status}`);
+      return await r.text();
+    });
+    textCache.set(key, p);
+  }
+  return textCache.get(key)!;
+}
+
+function normalizeKey(raw: string, strip: string[]) {
+  try {
+    const u = new URL(raw, typeof window !== "undefined" ? window.location.href : "http://local");
+    for (const p of strip) u.searchParams.delete(p);
+    u.hash = "";
+    if ([...u.searchParams.keys()].length > 1) {
+      const entries = [...u.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+      u.search = "";
+      for (const [k, v] of entries) u.searchParams.append(k, v);
+    }
+    return u.href;
+  } catch {
+    return raw;
+  }
 }

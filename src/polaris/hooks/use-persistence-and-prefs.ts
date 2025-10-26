@@ -1,6 +1,6 @@
-'use client';
-import { Level, Track } from '../ports';
-import * as React from 'react';
+"use client";
+import { Level, Track } from "../ports";
+import * as React from "react";
 
 type AnyEngine = {
   setVolume?: (v: number) => void;
@@ -13,16 +13,16 @@ type AnyEngine = {
   configureAbr?: (o: any) => void;
   setTextTrack?: (id?: string) => void;
   setAudioTrack?: (id?: string) => void;
-  setLevel?: (sel: 'auto' | { id: string }) => void;
+  setLevel?: (sel: "auto" | { id: string }) => void;
 };
 
 type CaptionStyle = {
-  size: 's' | 'm' | 'l';
-  bg: 'none' | 'semi' | 'solid';
-  font: 'system' | 'serif' | 'mono';
-  weight: 'regular' | 'bold';
-  outline: 'none' | 'thin' | 'thick';
-  shadow: 'none' | 'soft' | 'heavy';
+  size: "s" | "m" | "l";
+  bg: "none" | "semi" | "solid";
+  font: "system" | "serif" | "mono";
+  weight: "regular" | "bold";
+  outline: "none" | "thin" | "thick";
+  shadow: "none" | "soft" | "heavy";
 };
 
 export type PrefsState = {
@@ -45,17 +45,12 @@ export type PrefsState = {
   setCc: (cc: CaptionStyle) => void;
   audioId?: string;
   setAudioId: (id?: string) => void;
-  levelSel: 'auto' | { id: string };
-  setLevelSel: (s: 'auto' | { id: string }) => void;
+  levelSel: "auto" | { id: string };
+  setLevelSel: (s: "auto" | { id: string }) => void;
   refreshTracks: () => void;
 };
 
-export function usePersistenceAndPrefs(params: {
-  engine: AnyEngine;
-  storage: any;
-  sourceId: string | number;
-  videoRef: React.RefObject<HTMLVideoElement>;
-}): PrefsState {
+export function usePersistenceAndPrefs(params: { engine: AnyEngine; storage: any; sourceId: string | number; videoRef: React.RefObject<HTMLVideoElement> }): PrefsState {
   const { engine, storage, sourceId, videoRef } = params;
   const prefsKey = React.useMemo(() => `vod:${sourceId}`, [sourceId]);
 
@@ -70,22 +65,25 @@ export function usePersistenceAndPrefs(params: {
   const [texts, setTexts] = React.useState<Track[]>([]);
   const [textId, setTextId] = React.useState<string | undefined>();
   const [audioId, setAudioId] = React.useState<string | undefined>();
-  const [levelSel, setLevelSel] = React.useState<'auto' | { id: string }>('auto');
+  const [levelSel, setLevelSel] = React.useState<"auto" | { id: string }>("auto");
 
   const [cc, setCc] = React.useState<CaptionStyle>({
-    size: 'm',
-    bg: 'semi',
-    font: 'system',
-    weight: 'bold',
-    outline: 'thin',
-    shadow: 'soft',
+    size: "m",
+    bg: "semi",
+    font: "system",
+    weight: "bold",
+    outline: "thin",
+    shadow: "soft",
   });
 
   const refreshTracks = React.useCallback(() => {
-    setLevels(engine.getLevels?.() ?? []);
-    setAudios(engine.getAudioTracks?.() ?? []);
-    setTexts(engine.getTextTracks?.() ?? []);
-  }, [engine]);
+    const newLevels = engine.getLevels?.() ?? [];
+    const newAudios = engine.getAudioTracks?.() ?? [];
+    const newTexts = engine.getTextTracks?.() ?? [];
+    if (JSON.stringify(newLevels) !== JSON.stringify(levels)) setLevels(newLevels);
+    if (JSON.stringify(newAudios) !== JSON.stringify(audios)) setAudios(newAudios);
+    if (JSON.stringify(newTexts) !== JSON.stringify(texts)) setTexts(newTexts);
+  }, [engine, levels, audios, texts]);
 
   // consent + cross-tab sync
   React.useEffect(() => {
@@ -102,11 +100,11 @@ export function usePersistenceAndPrefs(params: {
         setDataSaver(Boolean((p as any)?.dataSaver));
       } catch {}
     };
-    window.addEventListener('storage', onSync);
-    window.addEventListener('player:persistence_sync', onSync as any);
+    window.addEventListener("storage", onSync);
+    window.addEventListener("player:persistence_sync", onSync as any);
     return () => {
-      window.removeEventListener('storage', onSync);
-      window.removeEventListener('player:persistence_sync', onSync as any);
+      window.removeEventListener("storage", onSync);
+      window.removeEventListener("player:persistence_sync", onSync as any);
     };
   }, [prefsKey, storage]);
 
@@ -117,7 +115,7 @@ export function usePersistenceAndPrefs(params: {
         volume: 1,
         muted: false,
         speed: 1,
-        quality: 'auto',
+        quality: "auto",
         dataSaver: false,
       };
       const p = pRaw as any;
@@ -132,7 +130,7 @@ export function usePersistenceAndPrefs(params: {
       refreshTracks();
 
       // restore saved quality if not 'auto'
-      if (p.quality && p.quality !== 'auto') {
+      if (p.quality && p.quality !== "auto") {
         const qId = String(p.quality);
         setLevelSel({ id: qId });
         try {
@@ -199,9 +197,9 @@ export function usePersistenceAndPrefs(params: {
             if (def) chooseId = def.id;
           }
           if (!chooseId) chooseId = texts[0].id;
-          if (chooseId) {
+          if (chooseId && textId !== chooseId) {
             setTextId(chooseId);
-            (engine as any).setTextTrack?.(chooseId);
+            engine.setTextTrack?.(chooseId);
           }
         } catch {}
       })();
@@ -215,7 +213,7 @@ export function usePersistenceAndPrefs(params: {
         volume,
         muted,
         speed: rate,
-        quality: levelSel === 'auto' ? 'auto' : Number((levelSel as any).id),
+        quality: levelSel === "auto" ? "auto" : Number((levelSel as any).id),
         captions: {
           lang: textId ? texts.find((t) => t.id === textId)?.lang : undefined,
           size: cc.size,

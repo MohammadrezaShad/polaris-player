@@ -1,7 +1,5 @@
 "use client";
 import * as React from "react";
-import { TooltipProvider } from "../../vendor/ui/tooltip";
-import { cn } from "../../vendor/helpers/cn";
 import dynamic from "next/dynamic";
 
 import { I18nProvider, useI18n } from "../providers/i18n/i18n";
@@ -30,6 +28,8 @@ import { useKeyboardShortcuts } from "../hooks/use-keyboard";
 import { useMobileExtras } from "../hooks/use-mobile-extras";
 import { MobileControls } from "./controls/mobile-controls";
 import { TapToUnmute } from "./overlays/tap-to-unmute";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { cn } from "../../vendor/helpers/cn";
 
 const SettingsPopover = dynamic(() => import("./settings/settings-popover"), { ssr: false });
 const SettingsDrawer = dynamic(() => import("./settings/settings-drawer"), { ssr: false });
@@ -138,26 +138,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
 }) {
-  // For first-load autoplay: render <video muted> so browsers allow autoplay
-  const initialMutedAttr = React.useMemo(() => autoplayMode !== "off", [autoplayMode]);
   const { t, dir, lang, announce } = useI18n();
 
   // Refs
   const videoRef = React.useRef<HTMLVideoElement>(null as any);
-  /* pre-seed muted for autoplay */
-  React.useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (autoplayMode !== "off") {
-      try {
-        v.muted = true;
-      } catch {}
-      try {
-        if ((v.volume ?? 1) > 0) v.volume = 0;
-      } catch {}
-    }
-  }, []);
-
   const adVideoRef = React.useRef<HTMLVideoElement>(null as any);
   const containerRef = React.useRef<HTMLDivElement>(null as any);
   const settingsBtnRef = React.useRef<HTMLButtonElement>(null as any);
@@ -229,14 +213,6 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
   // Prefs + persistence
 
-  /* align muted pref on first mount for autoplay */
-  React.useEffect(() => {
-    if (autoplayMode !== "off" && !muted) {
-      try {
-        setMuted(true);
-      } catch {}
-    }
-  }, []);
   const prefs = usePersistenceAndPrefs({ engine: engine as any, storage, sourceId: source.id, videoRef });
   const { volume, setVolume, muted, setMuted, rate, setRate, dataSaver, setDataSaver, persistOn, setPersistOn, levels, audios, texts, textId, setTextId, cc, setCc, audioId, setAudioId, levelSel, setLevelSel, refreshTracks } = prefs;
 
@@ -570,7 +546,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
       try {
         dispatch({ type: "load" } as any);
         // Ensure attach completes before load
-        await (engine.attach?.(videoRef.current) ?? Promise.resolve());
+        await ((engine.attach?.(videoRef.current) as any) ?? Promise.resolve());
         if (cancelled) return;
         await (engine.load?.(source) ?? Promise.resolve());
         if (cancelled) return;
@@ -912,7 +888,6 @@ const InnerPlayer = React.memo(function InnerPlayer({
 
       <MediaSurface
         videoRef={videoRef as any}
-        initialMutedAttr={initialMutedAttr}
         poster={source.poster}
         hideCursor={state.state === "playing" && !controlsVisible}
         onTogglePlay={onSurfaceToggle}

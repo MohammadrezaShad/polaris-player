@@ -1,7 +1,8 @@
-'use client';
-import * as React from 'react';
+"use client";
+import * as React from "react";
 
-import { useT } from '../../providers/i18n/i18n';
+import { useT } from "../../providers/i18n/i18n";
+import { cn } from "../../../vendor/helpers/cn";
 
 type Sprite = {
   url: string;
@@ -15,10 +16,11 @@ type Sprite = {
 };
 
 type BaseProps = {
-  anchorX: number; // px within container
-  containerWidth: number; // px
+  anchorX: number; // px within container (desktop only)
+  containerWidth: number; // px (width of the video area)
+  containerHeight?: number; // ✅ px (height of the video area) — NEW
   timeLabel: string;
-  sprite?: Sprite;
+  sprite?: Sprite | null; // null = no preview available at all
   margin?: number;
 };
 
@@ -35,55 +37,62 @@ type Props = ClassicProps | FullWidthProps;
 export default function TimelineTooltip(props: Props) {
   const t = useT();
 
-  // ── FULL-WIDTH (mobile ≤500px) ───────────────────────────────────────────────
+  // ── MOBILE (full-width) ─────────────────────────────────────────────────────
   if ((props as FullWidthProps).fullWidth) {
-    const { anchorX, containerWidth, timeLabel, sprite, margin = 0 } = props as FullWidthProps;
+    const { containerWidth, containerHeight, timeLabel, sprite, margin = 0 } = props as FullWidthProps;
 
     const displayW = Math.max(60, containerWidth - margin * 2);
+    // ✅ Use the actual video height if provided; fallback to 16:9 estimate
+    const displayH = Math.max(60, Math.round(containerHeight ?? (displayW * 9) / 16));
 
-    if (!sprite || !sprite.url || !sprite.w || !sprite.h) {
-      return (
-        <div
-          role="tooltip"
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none"
-          aria-label={t('a11y.tooltipTime', { time: timeLabel })}
-        />
-      );
+    const noPreview = sprite === null;
+    const ready = !!sprite && !!sprite.url && Number.isFinite(sprite.w) && Number.isFinite(sprite.h) && Number.isFinite(sprite.naturalW) && Number.isFinite(sprite.naturalH);
+
+    // Nothing while not ready or not available
+    if (noPreview || !ready) {
+      return <div role="tooltip" className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })} />;
     }
 
-    // Compute crop → scale to full width
-    const naturalW = sprite.naturalW ?? 0;
-    const naturalH = sprite.naturalH ?? 0;
-    const x = sprite.isPercent ? (sprite.x / 100) * naturalW : sprite.x;
-    const y = sprite.isPercent ? (sprite.y / 100) * naturalH : sprite.y;
-    const w = sprite.isPercent ? (sprite.w / 100) * naturalW : sprite.w;
-    const h = sprite.isPercent ? (sprite.h / 100) * naturalH : sprite.h;
+    // --- COVER to fill the whole video area (width x height) ---
+    const natW = sprite.naturalW as number;
+    const natH = sprite.naturalH as number;
 
-    const regionAspect = h / (w || 1);
-    const displayH = Math.max(1, Math.round(displayW * regionAspect));
+    const pxW = sprite.isPercent ? (sprite.w / 100) * natW : sprite.w;
+    const pxXr = sprite.isPercent ? (sprite.x / 100) * natW : sprite.x;
+    const pxYr = sprite.isPercent ? (sprite.y / 100) * natH : sprite.y;
 
-    const scale = displayW / (w || 1);
-    const bgSizeW = Math.round(naturalW * scale);
-    const bgSizeH = Math.round(naturalH * scale);
-    const bgPosX = -Math.round(x * scale);
-    const bgPosY = -Math.round(y * scale);
+    // infer true tile height from grid (handles 160x68 sheets)
+    const cols = Math.max(1, Math.round(natW / Math.max(1, pxW)));
+    const pxH = Math.max(1, Math.round(natH / cols));
 
-    const clampedAnchor = Math.max(margin, Math.min(containerWidth - margin, anchorX));
+    // snap to grid
+    const col = Math.round(pxXr / Math.max(1, pxW));
+    const row = Math.round(pxYr / pxH);
+    const pxX = col * pxW;
+    const pxY = row * pxH;
+
+    // COVER scale: fill both width and height, then center the overflow
+    const s = Math.max(displayW / Math.max(1, pxW), displayH / pxH);
+    const dw = Math.ceil(pxW * s);
+    const dh = Math.ceil(pxH * s);
+
+    const cx = Math.round((displayW - dw) / 2);
+    const cy = Math.round((displayH - dh) / 2);
+
+    const bgSizeW = Math.ceil(natW * s);
+    const bgSizeH = Math.ceil(natH * s);
+    const bgPosX = cx - Math.round(pxX * s);
+    const bgPosY = cy - Math.round(pxY * s);
 
     return (
-      <div
-        role="tooltip"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none"
-        aria-label={t('a11y.tooltipTime', { time: timeLabel })}
-      >
-        {/* Full-width preview (below slider in z-order) */}
+      <div role="tooltip" className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })}>
         <div
-          className="relative overflow-hidden bg-black/40"
+          className="relative overflow-hidden bg-black"
           style={{
-            width: '100%',
-            height: displayH,
+            width: "100%",
+            height: displayH, // fills full video height
             backgroundImage: `url(${sprite.url})`,
-            backgroundRepeat: 'no-repeat',
+            backgroundRepeat: "no-repeat",
             backgroundSize: `${bgSizeW}px ${bgSizeH}px`,
             backgroundPosition: `${bgPosX}px ${bgPosY}px`,
           }}
@@ -92,53 +101,64 @@ export default function TimelineTooltip(props: Props) {
     );
   }
 
-  // ── CLASSIC (desktop/wide >500px) ────────────────────────────────────────────
+  // ── DESKTOP (classic tooltip) ────────────────────────────────────────────────
   const { anchorX, containerWidth, timeLabel, sprite, width = 160, height = 90, margin = 8 } = props as ClassicProps;
 
-  const minWidth = Math.max(60, Math.min(width, containerWidth - margin * 2));
-  const scale = minWidth / width;
-  const tw = Math.max(60, Math.min(width, minWidth));
-  const th = Math.round(height * scale);
-
-  const half = tw / 2;
+  const boxW = Math.max(60, Math.min(width, containerWidth - margin * 2));
+  const boxH = Math.round((height / width) * boxW);
+  const half = boxW / 2;
   const clampedLeft = Math.max(half + margin, Math.min(containerWidth - half - margin, anchorX));
 
-  let bgStyle: React.CSSProperties | undefined;
-  if (sprite && sprite.url) {
-    const naturalW = sprite.naturalW ?? 0;
-    const naturalH = sprite.naturalH ?? 0;
-    const x = sprite.isPercent ? (sprite.x / 100) * naturalW : sprite.x;
-    const y = sprite.isPercent ? (sprite.y / 100) * naturalH : sprite.y;
-    bgStyle = {
+  const noPreview = sprite === null;
+  const ready = !!sprite && !!sprite.url && Number.isFinite(sprite.w) && Number.isFinite(sprite.h) && Number.isFinite(sprite.naturalW) && Number.isFinite(sprite.naturalH);
+
+  let innerStyle: React.CSSProperties | undefined;
+  if (ready && sprite) {
+    const natW = sprite.naturalW as number;
+    const natH = sprite.naturalH as number;
+
+    const pxW = sprite.isPercent ? (sprite.w / 100) * natW : sprite.w;
+    const pxXr = sprite.isPercent ? (sprite.x / 100) * natW : sprite.x;
+    const pxYr = sprite.isPercent ? (sprite.y / 100) * natH : sprite.y;
+
+    const cols = Math.max(1, Math.round(natW / Math.max(1, pxW)));
+    const pxH = Math.max(1, Math.round(natH / cols));
+
+    const col = Math.round(pxXr / Math.max(1, pxW));
+    const row = Math.round(pxYr / pxH);
+    const pxX = col * pxW;
+    const pxY = row * pxH;
+
+    // COVER for desktop box
+    const s = Math.max(boxW / Math.max(1, pxW), boxH / pxH);
+    const dw = Math.ceil(pxW * s);
+    const dh = Math.ceil(pxH * s);
+
+    const bgSizeW = Math.ceil(natW * s);
+    const bgSizeH = Math.ceil(natH * s);
+    const bgPosX = -Math.round(pxX * s);
+    const bgPosY = -Math.round(pxY * s);
+
+    innerStyle = {
+      width: `${dw}px`,
+      height: `${dh}px`,
       backgroundImage: `url(${sprite.url})`,
-      backgroundPosition: `-${x}px -${y}px`,
-      backgroundSize: `${naturalW}px ${naturalH}px`,
-      width: `${tw}px`,
-      height: `${th}px`,
+      backgroundRepeat: "no-repeat",
+      backgroundSize: `${bgSizeW}px ${bgSizeH}px`,
+      backgroundPosition: `${bgPosX}px ${bgPosY}px`,
     };
   }
 
   return (
-    <div
-      role="tooltip"
-      className="pointer-events-none absolute -top-[150px] z-[650] select-none"
-      aria-label={t('a11y.tooltipTime', { time: timeLabel })}
-      style={{ left: `${clampedLeft}px`, transform: 'translateX(-50%)' }}
-    >
+    <div role="tooltip" className="pointer-events-none absolute -top-[150px] z-[650] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })} style={{ left: `${clampedLeft}px`, transform: "translateX(-50%)" }}>
       <div className="flex flex-col items-center">
-        <div
-          className="overflow-hidden rounded-md border border-white/10 bg-black/40 shadow-lg"
-          style={{ width: tw, height: th }}
-        >
-          {bgStyle ? (
-            <div style={bgStyle as any} />
-          ) : (
-            <div className="grid h-full w-full place-items-center text-xs text-white/80">{t('overlays.noPreview')}</div>
-          )}
-        </div>
-        <div className="mt-2 w-max rounded-md border border-white/10 bg-zinc-950/80 px-2 py-1 text-[11px] text-white shadow backdrop-blur">
-          {timeLabel}
-        </div>
+        {!noPreview && ready && innerStyle && (
+          <div className={cn("grid place-items-center overflow-hidden rounded-md border border-white/10 bg-black shadow-lg")} style={{ width: boxW, height: boxH }}>
+            <div style={innerStyle as any} />
+          </div>
+        )}
+
+        <div className="mt-2 w-max rounded-md border border-white/10 bg-zinc-950/80 px-2 py-1 text-[11px] text-white shadow backdrop-blur">{timeLabel}</div>
       </div>
     </div>
   );

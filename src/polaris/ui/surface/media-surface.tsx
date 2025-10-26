@@ -8,10 +8,9 @@
  */
 "use client";
 import * as React from "react";
+
 import { AdOverlay } from "../overlays/ad-overlay";
 import type { AdState } from "../../ads/types";
-import { cn } from "../../../vendor/helpers/cn";
-
 import { useT } from "../../providers/i18n/i18n";
 import { PlayPausePulse } from "../overlays/play-pause-pulse";
 import { CaptionOverlay, type CaptionStyle } from "../overlays/caption-overlay";
@@ -19,6 +18,7 @@ import { LoadingOverlay } from "../overlays/loading-overlay";
 import { CenterPlayOverlay } from "../overlays/center-play-overlay";
 import { EndedOverlay } from "../overlays/ended-overlay";
 import { ErrorOverlay } from "../overlays/error-overlay";
+import { cn } from "../../../vendor/helpers/cn";
 
 export type Pulse = { kind: "play" | "pause"; key: number };
 
@@ -72,7 +72,7 @@ type MediaSurfaceProps = {
   onRevealControls?: () => void;
 };
 
-export function MediaSurface({ videoRef, poster, hideCursor, onTogglePlay, showLoading, initialMutedAttr, showCenterPlay, showEnded, showError, errorMessage, onRetry, isMobileResolved, pulse, caption, children, ads, adActive = false, adVideoRef, onRevealControls, className }: MediaSurfaceProps) {
+export function MediaSurface({ videoRef, poster, hideCursor, onTogglePlay, showLoading, showCenterPlay, showEnded, showError, errorMessage, onRetry, isMobileResolved, pulse, caption, children, ads, adActive = false, adVideoRef, onRevealControls, className }: MediaSurfaceProps) {
   const t = useT();
 
   // Prevent a quick second tap from toggling play immediately after we just revealed controls.
@@ -161,7 +161,6 @@ export function MediaSurface({ videoRef, poster, hideCursor, onTogglePlay, showL
       {/* Main content video */}
       <video
         ref={videoRef}
-        muted={initialMutedAttr ?? false}
         poster={poster}
         playsInline
         webkit-playsinline="true"
