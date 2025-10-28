@@ -1,4 +1,6 @@
+/** src/player/ui/timeline-tooltip.tsx */
 "use client";
+
 import * as React from "react";
 
 import { useT } from "../../providers/i18n/i18n";
@@ -16,63 +18,57 @@ type Sprite = {
 };
 
 type BaseProps = {
-  anchorX: number; // px within container (desktop only)
-  containerWidth: number; // px (width of the video area)
-  containerHeight?: number; // ✅ px (height of the video area) — NEW
+  anchorX: number; // desktop only
+  containerWidth: number; // video width (px)
+  containerHeight?: number; // video height (px) for fullWidth (mobile)
   timeLabel: string;
-  sprite?: Sprite | null; // null = no preview available at all
+  sprite?: Sprite | null; // null = explicitly "no preview"
   margin?: number;
 };
 
-type ClassicProps = BaseProps & {
-  fullWidth?: false;
-  width?: number;
-  height?: number;
-};
-
+type ClassicProps = BaseProps & { fullWidth?: false; width?: number; height?: number };
 type FullWidthProps = BaseProps & { fullWidth: true };
-
 type Props = ClassicProps | FullWidthProps;
+
+function isFullWidth(p: Props): p is FullWidthProps {
+  return (p as any).fullWidth === true;
+}
 
 export default function TimelineTooltip(props: Props) {
   const t = useT();
+  const sprite = props.sprite;
+
+  // We rely on adapter-provided natural sizes — no extra <img> preloads here.
+  const natW = sprite?.naturalW ?? 0;
+  const natH = sprite?.naturalH ?? 0;
 
   // ── MOBILE (full-width) ─────────────────────────────────────────────────────
-  if ((props as FullWidthProps).fullWidth) {
-    const { containerWidth, containerHeight, timeLabel, sprite, margin = 0 } = props as FullWidthProps;
+  if (isFullWidth(props)) {
+    const { containerWidth, containerHeight, timeLabel, margin = 0 } = props;
 
     const displayW = Math.max(60, containerWidth - margin * 2);
-    // ✅ Use the actual video height if provided; fallback to 16:9 estimate
+    // Full-height if provided; else maintain 16:9 by width
     const displayH = Math.max(60, Math.round(containerHeight ?? (displayW * 9) / 16));
 
     const noPreview = sprite === null;
-    const ready = !!sprite && !!sprite.url && Number.isFinite(sprite.w) && Number.isFinite(sprite.h) && Number.isFinite(sprite.naturalW) && Number.isFinite(sprite.naturalH);
+    const hasDims = Number.isFinite(sprite?.w) && Number.isFinite(sprite?.h);
+    const ready = !!sprite && !!sprite.url && hasDims && natW > 0 && natH > 0;
 
-    // Nothing while not ready or not available
     if (noPreview || !ready) {
       return <div role="tooltip" className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })} />;
     }
 
-    // --- COVER to fill the whole video area (width x height) ---
-    const natW = sprite.naturalW as number;
-    const natH = sprite.naturalH as number;
+    const pxW = sprite!.isPercent ? (sprite!.w / 100) * natW : sprite!.w;
+    const pxH = sprite!.isPercent ? (sprite!.h / 100) * natH : sprite!.h;
+    const pxXr = sprite!.isPercent ? (sprite!.x / 100) * natW : sprite!.x;
+    const pxYr = sprite!.isPercent ? (sprite!.y / 100) * natH : sprite!.y;
 
-    const pxW = sprite.isPercent ? (sprite.w / 100) * natW : sprite.w;
-    const pxXr = sprite.isPercent ? (sprite.x / 100) * natW : sprite.x;
-    const pxYr = sprite.isPercent ? (sprite.y / 100) * natH : sprite.y;
-
-    // infer true tile height from grid (handles 160x68 sheets)
-    const cols = Math.max(1, Math.round(natW / Math.max(1, pxW)));
-    const pxH = Math.max(1, Math.round(natH / cols));
-
-    // snap to grid
     const col = Math.round(pxXr / Math.max(1, pxW));
-    const row = Math.round(pxYr / pxH);
+    const row = Math.round(pxYr / Math.max(1, pxH));
     const pxX = col * pxW;
     const pxY = row * pxH;
 
-    // COVER scale: fill both width and height, then center the overflow
-    const s = Math.max(displayW / Math.max(1, pxW), displayH / pxH);
+    const s = Math.max(displayW / Math.max(1, pxW), displayH / Math.max(1, pxH));
     const dw = Math.ceil(pxW * s);
     const dh = Math.ceil(pxH * s);
 
@@ -85,13 +81,13 @@ export default function TimelineTooltip(props: Props) {
     const bgPosY = cy - Math.round(pxY * s);
 
     return (
-      <div role="tooltip" className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })}>
+      <div role="tooltip" className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] select-none" aria-label={t("a11y.tooltipTime", { time: props.timeLabel })}>
         <div
           className="relative overflow-hidden bg-black"
           style={{
             width: "100%",
-            height: displayH, // fills full video height
-            backgroundImage: `url(${sprite.url})`,
+            height: displayH,
+            backgroundImage: `url(${sprite!.url})`, // Blob URL from adapter/hook
             backgroundRepeat: "no-repeat",
             backgroundSize: `${bgSizeW}px ${bgSizeH}px`,
             backgroundPosition: `${bgPosX}px ${bgPosY}px`,
@@ -102,7 +98,7 @@ export default function TimelineTooltip(props: Props) {
   }
 
   // ── DESKTOP (classic tooltip) ────────────────────────────────────────────────
-  const { anchorX, containerWidth, timeLabel, sprite, width = 160, height = 90, margin = 8 } = props as ClassicProps;
+  const { anchorX, containerWidth, timeLabel, width = 160, height = 90, margin = 8 } = props as ClassicProps;
 
   const boxW = Math.max(60, Math.min(width, containerWidth - margin * 2));
   const boxH = Math.round((height / width) * boxW);
@@ -110,27 +106,22 @@ export default function TimelineTooltip(props: Props) {
   const clampedLeft = Math.max(half + margin, Math.min(containerWidth - half - margin, anchorX));
 
   const noPreview = sprite === null;
-  const ready = !!sprite && !!sprite.url && Number.isFinite(sprite.w) && Number.isFinite(sprite.h) && Number.isFinite(sprite.naturalW) && Number.isFinite(sprite.naturalH);
+  const hasDims = Number.isFinite(sprite?.w) && Number.isFinite(sprite?.h);
+  const ready = !!sprite && !!sprite.url && hasDims && natW > 0 && natH > 0;
 
   let innerStyle: React.CSSProperties | undefined;
   if (ready && sprite) {
-    const natW = sprite.naturalW as number;
-    const natH = sprite.naturalH as number;
-
     const pxW = sprite.isPercent ? (sprite.w / 100) * natW : sprite.w;
+    const pxH = sprite.isPercent ? (sprite.h / 100) * natH : sprite.h;
     const pxXr = sprite.isPercent ? (sprite.x / 100) * natW : sprite.x;
     const pxYr = sprite.isPercent ? (sprite.y / 100) * natH : sprite.y;
 
-    const cols = Math.max(1, Math.round(natW / Math.max(1, pxW)));
-    const pxH = Math.max(1, Math.round(natH / cols));
-
     const col = Math.round(pxXr / Math.max(1, pxW));
-    const row = Math.round(pxYr / pxH);
+    const row = Math.round(pxYr / Math.max(1, pxH));
     const pxX = col * pxW;
     const pxY = row * pxH;
 
-    // COVER for desktop box
-    const s = Math.max(boxW / Math.max(1, pxW), boxH / pxH);
+    const s = Math.max(boxW / Math.max(1, pxW), boxH / Math.max(1, pxH));
     const dw = Math.ceil(pxW * s);
     const dh = Math.ceil(pxH * s);
 
@@ -142,7 +133,7 @@ export default function TimelineTooltip(props: Props) {
     innerStyle = {
       width: `${dw}px`,
       height: `${dh}px`,
-      backgroundImage: `url(${sprite.url})`,
+      backgroundImage: `url(${sprite.url})`, // Blob URL from adapter/hook
       backgroundRepeat: "no-repeat",
       backgroundSize: `${bgSizeW}px ${bgSizeH}px`,
       backgroundPosition: `${bgPosX}px ${bgPosY}px`,
@@ -152,11 +143,10 @@ export default function TimelineTooltip(props: Props) {
   return (
     <div role="tooltip" className="pointer-events-none absolute -top-[150px] z-[650] select-none" aria-label={t("a11y.tooltipTime", { time: timeLabel })} style={{ left: `${clampedLeft}px`, transform: "translateX(-50%)" }}>
       <div className="flex flex-col items-center">
-        {!noPreview && ready && innerStyle && (
-          <div className={cn("grid place-items-center overflow-hidden rounded-md border border-white/10 bg-black shadow-lg")} style={{ width: boxW, height: boxH }}>
-            <div style={innerStyle as any} />
-          </div>
-        )}
+        <div className={cn("grid place-items-center overflow-hidden rounded-md border border-white/10 bg-black opacity-0 shadow-lg", !noPreview && ready && innerStyle && "opacity-100")} style={{ width: boxW, height: boxH }}>
+          {/* do NOT set a changing key here; it forces remount/reload */}
+          <div style={innerStyle} />
+        </div>
 
         <div className="mt-2 w-max rounded-md border border-white/10 bg-zinc-950/80 px-2 py-1 text-[11px] text-white shadow backdrop-blur">{timeLabel}</div>
       </div>
