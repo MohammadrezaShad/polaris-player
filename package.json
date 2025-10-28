@@ -1,6 +1,6 @@
 {
   "name": "polaris-player",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Polaris Player – reusable Next.js/Tailwind/shadcn video player",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
