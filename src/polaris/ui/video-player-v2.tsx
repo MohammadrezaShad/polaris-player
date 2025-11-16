@@ -68,9 +68,13 @@ type Props = {
   locale?: string;
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
+  onEnded?: () => void;
+  onProgress?: (percent: number, meta: { currentTime: number; duration: number; bufferedEnd: number }) => void;
+  disableEndOverlay?: boolean;
+  fsTargetRef?: React.RefObject<HTMLElement>;
 };
 
-export default function VideoPlayer({ source, analyticsEndpoint, hasAnalytics = false, embedCtx, playerVersion = "v2.7-refactor-final", autoplayMode = "smart", autoplayVolume = 1, locale = "en", className, onFirstVideoLoaded }: Props) {
+export default function VideoPlayer({ source, analyticsEndpoint, hasAnalytics = false, embedCtx, playerVersion = "v2.7-refactor-final", autoplayMode = "smart", autoplayVolume = 1, locale = "en", className, disableEndOverlay, fsTargetRef, onFirstVideoLoaded, onEnded, onProgress }: Props) {
   // Avoid random on the server render to keep SSR/CSR stable
   const sessionRef = React.useRef<string | null>(null);
   if (sessionRef.current == null) {
@@ -94,16 +98,12 @@ export default function VideoPlayer({ source, analyticsEndpoint, hasAnalytics = 
     <I18nProvider locale={locale as any}>
       <PlayerProvider analyticsEndpoint={analyticsEndpoint} hasAnalytics={hasAnalytics} embedCtx={ctx} playerVersion={playerVersion}>
         <TooltipProvider delayDuration={100}>
-          <InnerPlayer source={source} autoplayMode={autoplayMode} autoplayVolume={autoplayVolume} onFirstVideoLoaded={onFirstVideoLoaded} className={className} />
+          <InnerPlayer source={source} autoplayMode={autoplayMode} autoplayVolume={autoplayVolume} onFirstVideoLoaded={onFirstVideoLoaded} onEnded={onEnded} onProgress={onProgress} className={className} disableEndOverlay={disableEndOverlay} fsTargetRef={fsTargetRef} />
         </TooltipProvider>
       </PlayerProvider>
     </I18nProvider>
   );
 }
-
-// ────────────────────────────────────────────────────────────────────────────────
-// Inner (refactored): composition of hooks + simple render
-// ────────────────────────────────────────────────────────────────────────────────
 const MEDIA_Q = "(min-width: 960px)";
 
 function useDesktopAfterMount(): boolean | null {
@@ -131,12 +131,20 @@ const InnerPlayer = React.memo(function InnerPlayer({
   autoplayVolume, // kept for API parity
   onFirstVideoLoaded,
   className,
+  disableEndOverlay,
+  fsTargetRef,
+  onEnded,
+  onProgress,
 }: {
   source: SourceDescriptor;
   autoplayMode: "off" | "on" | "smart";
   autoplayVolume: number;
   onFirstVideoLoaded?: (info: FirstLoadedPayload) => void;
   className?: string;
+  onEnded?: () => void;
+  onProgress?: (percent: number, meta: { currentTime: number; duration: number; bufferedEnd: number }) => void;
+  disableEndOverlay?: boolean;
+  fsTargetRef?: React.RefObject<HTMLElement>;
 }) {
   const { t, dir, lang, announce } = useI18n();
 
@@ -189,9 +197,10 @@ const InnerPlayer = React.memo(function InnerPlayer({
     setPulse({ kind, key: Date.now() });
     window.setTimeout(() => setPulse(null), 560);
   }, []);
+  const fullscreenTarget = (fsTargetRef?.current ? fsTargetRef : containerRef) as any;
 
   // FS / PiP
-  const { active: fsActive, toggle: toggleFullscreen } = useFullscreen(containerRef as any, videoRef as any);
+  const { active: fsActive, toggle: toggleFullscreen } = useFullscreen(fullscreenTarget as any, videoRef as any);
   const { active: pipActive, toggle: togglePiP } = usePiP(videoRef as any);
 
   // Online
@@ -227,6 +236,23 @@ const InnerPlayer = React.memo(function InnerPlayer({
     pageActive,
     videoRef,
   });
+
+  const __lastProgressRef = React.useRef<number>(-1);
+  React.useEffect(() => {
+    if (!onProgress) return;
+    const d = Number.isFinite(duration) ? duration : 0;
+    if (d <= 0) return;
+    const t = Math.max(0, currentTime);
+    const percent = Math.max(0, Math.min(100, (t / d) * 100));
+    const rounded = Math.round(percent);
+    if (__lastProgressRef.current !== rounded) {
+      __lastProgressRef.current = rounded;
+      const bufferedEnd = buffered.length ? buffered[buffered.length - 1].end : 0;
+      try {
+        onProgress(rounded, { currentTime: t, duration: d, bufferedEnd });
+      } catch {}
+    }
+  }, [currentTime, duration, buffered, onProgress]);
 
   // Stall watchdog
   const adActiveRef = React.useRef(false);
@@ -626,6 +652,9 @@ const InnerPlayer = React.memo(function InnerPlayer({
         }
       } catch {}
       (ads as any)?.notifyEnded?.();
+      try {
+        onEnded?.();
+      } catch {}
     });
 
     const unErr = engine.on?.("engine_error", async (e: any) => {
@@ -883,7 +912,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
   const mobileControlsVisible = isMobileResolved && !tapUnmuteActive && !adActive && (controlsVisible || state.state === "ended" || showLoading);
 
   return (
-    <div ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} onPointerMove={onPointerMove} onPointerUp={onContainerPointerUp} onPointerUpCapture={onContainerPointerUpCapture} className={cn("player-v2 relative w-full overflow-hidden bg-black outline-none", hideCursor ? "cursor-none" : "cursor-auto", className)} aria-label={t("a11y.playerRegion")} role="region" lang={lang} dir={dir} suppressHydrationWarning>
+    <div ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} onPointerMove={onPointerMove} onPointerUp={onContainerPointerUp} onPointerUpCapture={onContainerPointerUpCapture} className={cn("player-v2 relative h-full w-full overflow-hidden bg-black outline-none", hideCursor ? "cursor-none" : "cursor-auto", className)} aria-label={t("a11y.playerRegion")} role="region" lang={lang} dir={dir} suppressHydrationWarning>
       <OfflineBanner online={online} />
 
       <MediaSurface
@@ -893,7 +922,7 @@ const InnerPlayer = React.memo(function InnerPlayer({
         onTogglePlay={onSurfaceToggle}
         showLoading={showLoading}
         showCenterPlay={state.state === "paused" && currentTime < 0.05}
-        showEnded={showEnded}
+        showEnded={showEnded && !disableEndOverlay}
         showError={showError}
         errorMessage={t("overlays.errorGeneric")}
         onRetry={() => {

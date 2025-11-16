@@ -14,6 +14,33 @@ function bufferedAhead(video: HTMLVideoElement | null, at: number): number {
   return 0;
 }
 
+/**
+ * Brutal killer: pause + clear ALL video/audio on the page.
+ * If `except` is provided, it will be kept alive.
+ */
+function killAllMedia(except?: HTMLMediaElement | null) {
+  try {
+    const videos = Array.from(document.querySelectorAll("video")) as HTMLVideoElement[];
+    const audios = Array.from(document.querySelectorAll("audio")) as HTMLAudioElement[];
+    const all = [...videos, ...audios] as HTMLMediaElement[];
+
+    for (const el of all) {
+      if (except && el === except) continue;
+      try {
+        el.pause();
+      } catch {}
+      try {
+        el.removeAttribute("src");
+      } catch {}
+      try {
+        (el as any).load?.();
+      } catch {}
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function useAdsAutoplayResume(params: { engine: any; source: any; analytics: any; duration: number; currentTime: number; videoRef: React.RefObject<HTMLVideoElement>; adVideoRef: React.RefObject<HTMLVideoElement>; autoplayMode: "off" | "on" | "smart"; onDispatch: (type: "play" | "pause") => void; scheduleStallWatch: (reason: string) => void; onAutoplayMuted?: () => void }) {
   const { engine, source, analytics, duration, currentTime, videoRef, adVideoRef, autoplayMode, onDispatch, scheduleStallWatch, onAutoplayMuted } = params;
 
@@ -23,11 +50,16 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     adActiveRef.current = adActive;
   }, [adActive]);
 
-  // preroll flags
+  // Keep latest ads manager for resets
+  const adsRef = React.useRef<any>(null);
+
+  // ---------- preroll flags ----------
+
   const hasPreroll = React.useMemo(() => {
     const s = source.ads?.schedule;
-    return Boolean((s && s.prerollTag) || source.ads?.vmapUrl);
+    return Boolean(s && s.prerollTag); // ONLY explicit prerollTag, not "any VMAP"
   }, [source.ads]);
+
   const adsPrerollPendingRef = React.useRef<boolean>(false);
   const prerollServedRef = React.useRef<boolean>(false);
   const wasPlayingBeforeAdRef = React.useRef(false);
@@ -35,6 +67,7 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
   React.useEffect(() => {
     adsPrerollPendingRef.current = hasPreroll;
     prerollServedRef.current = false;
+    wasPlayingBeforeAdRef.current = false;
   }, [hasPreroll, source.id]);
 
   // guard main element during ads
@@ -56,15 +89,12 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     let resolved = false;
     let usedMutedFallback = false;
 
-    console.log("Attempting play with current audio settings");
-
     const onPlaying = () => {
       resolved = true;
       onDispatch("play");
-      // Only show hint if we force-muted due to fallback (avoids hint if user-prefs are muted)
       if (usedMutedFallback) {
         setTimeout(() => {
-          if (v.muted) onAutoplayMuted?.(); // Show unmute hint
+          if (v.muted) onAutoplayMuted?.();
         }, 60);
       }
     };
@@ -72,10 +102,8 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
 
     try {
       await (engine.play?.() ?? v.play?.());
-      console.log("Play succeeded with current settings");
     } catch (err: any) {
-      console.error("Initial play failed:", err.name, err.message);
-      // Fallback: Force muted only if initial fails (policy block)
+      console.error("Initial play failed:", err?.name, err?.message);
       try {
         engine.setMuted?.(true);
         v.muted = true;
@@ -83,8 +111,7 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
         await (engine.play?.() ?? v.play?.());
         console.log("Muted fallback play succeeded");
       } catch (mutedErr: any) {
-        console.error("Muted fallback failed:", mutedErr.name, mutedErr.message);
-        // Optional: Set state for "tap to play" overlay here if needed
+        console.error("Muted fallback failed:", mutedErr?.name, mutedErr?.message);
       }
     }
 
@@ -92,50 +119,23 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     return { resolved, usedMutedFallback };
   }, [engine, videoRef, onDispatch, onAutoplayMuted]);
 
-  const gatedPlay = React.useCallback(async (): Promise<boolean> => {
-    const v = videoRef.current;
-    if (!v) return false;
-    if (adActive || adActiveRef.current) {
-      wasPlayingBeforeAdRef.current = true;
-      return false;
-    }
-    if (adsPrerollPendingRef.current) {
-      wasPlayingBeforeAdRef.current = true;
-      try {
-        const prevMuted = v.muted,
-          prevVol = v.volume;
-        v.muted = true;
-        engine.setMuted?.(true);
-        v.volume = 0;
-        engine.setVolume?.(0);
-        try {
-          await (engine.play?.() ?? v.play?.());
-        } catch {}
-        setTimeout(() => {
-          try {
-            v.pause();
-          } catch {}
-        }, 0);
-        v.muted = prevMuted;
-        v.volume = prevVol;
-      } catch {}
-      return false;
-    }
-    await tryPlayWithEventDispatch();
-    return true;
-  }, [adActive, engine, tryPlayWithEventDispatch, videoRef]);
-
   const resumeMainAfterAd = React.useCallback(
     async (reason: "ads_resume" | "ads_skip" | "ads_error") => {
       setAdActive(false);
+      adActiveRef.current = false;
+
       try {
-        if (adPlaybackGuardRef.current) videoRef.current?.removeEventListener("play", adPlaybackGuardRef.current);
+        const guard = adPlaybackGuardRef.current;
+        const main = videoRef.current;
+        if (guard && main) main.removeEventListener("play", guard);
       } catch {}
       adPlaybackGuardRef.current = null;
+
       restoreMediaSettingsAfterAds();
 
       const shouldResume = wasPlayingBeforeAdRef.current || autoplayMode === "on" || autoplayMode === "smart";
       wasPlayingBeforeAdRef.current = false;
+
       if (shouldResume) {
         const res = await tryPlayWithEventDispatch();
         if (!res?.resolved) {
@@ -150,18 +150,22 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     [restoreMediaSettingsAfterAds, tryPlayWithEventDispatch, scheduleStallWatch, autoplayMode, engine, videoRef, onDispatch]
   );
 
-  // stable schedule
+  // ---------- stable schedule ----------
+
   const [stableSchedule, setStableSchedule] = React.useState<{ breaks: any[] } | undefined>(undefined);
+
   React.useEffect(() => {
     const s = source.ads?.schedule;
     if (!s) {
       setStableSchedule(undefined);
       return;
     }
+
     const breaks: any[] = [];
     if (s.prerollTag && !prerollServedRef.current) breaks.push({ id: "preroll", kind: "preroll", vastTagUrl: s.prerollTag });
     (s.midrolls ?? []).forEach((m: any, i: number) => breaks.push({ id: `mid_${i}`, kind: "midroll", timeOffsetSec: m.at, vastTagUrl: m.tag }));
     if (s.postrollTag) breaks.push({ id: "postroll", kind: "postroll", vastTagUrl: s.postrollTag });
+
     setStableSchedule({ breaks });
   }, [source.id, source.ads]);
 
@@ -175,13 +179,17 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
       wasPlayingBeforeAdRef.current = true;
       adsPrerollPendingRef.current = false;
       if (wasPreroll) prerollServedRef.current = true;
+
       try {
         engine.pause?.();
       } catch {}
       try {
         videoRef.current?.pause?.();
       } catch {}
+
       setAdActive(true);
+      adActiveRef.current = true;
+
       try {
         const guard = () => {
           if (adActiveRef.current) {
@@ -200,7 +208,48 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     analyticsEmit: (e: any) => analytics.emit(e),
   });
 
-  // ad events to resume
+  React.useEffect(() => {
+    adsRef.current = ads;
+  }, [ads]);
+
+  // ---------- FULL RESET on source change ----------
+  React.useEffect(() => {
+    // 1) reset ad manager internals
+    try {
+      const mgr: any = adsRef.current;
+      mgr?.hardReset?.();
+    } catch {}
+
+    // 2) reset flags
+    setAdActive(false);
+    adActiveRef.current = false;
+    wasPlayingBeforeAdRef.current = false;
+    adsPrerollPendingRef.current = hasPreroll;
+    prerollServedRef.current = false;
+
+    // 3) remove guard
+    try {
+      const guard = adPlaybackGuardRef.current;
+      const main = videoRef.current;
+      if (guard && main) main.removeEventListener("play", guard);
+    } catch {}
+    adPlaybackGuardRef.current = null;
+
+    // 4) hard-stop ad element itself
+    try {
+      const adEl = adVideoRef.current;
+      if (adEl) {
+        adEl.pause();
+        adEl.removeAttribute("src");
+        adEl.load();
+      }
+    } catch {}
+
+    // 5) KILL ALL other media except the new main content video
+    killAllMedia(videoRef.current || null);
+  }, [source.id, hasPreroll, videoRef, adVideoRef]);
+
+  // ad events → resume main (kept for future, safe noop if ads has no .on)
   React.useEffect(() => {
     const a: any = ads as any;
     const offSkipped = a?.on?.("ad_skipped", () => void resumeMainAfterAd("ads_skip"));
@@ -215,7 +264,7 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     };
   }, [ads, resumeMainAfterAd]);
 
-  // fallback: ad <video> ends
+  // fallback: ad <video> ends → resume main
   React.useEffect(() => {
     const el = adVideoRef.current;
     if (!el) return;
@@ -226,7 +275,57 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     return () => el.removeEventListener("ended", onEnded);
   }, [adVideoRef, resumeMainAfterAd]);
 
-  // ad markers from schedule
+  // --- CONFLICT GUARD: if main + ad play together (e.g. on back), kill the ad ---
+  React.useEffect(() => {
+    const stopAdKeepMain = () => {
+      const main = videoRef.current;
+      const ad = adVideoRef.current;
+      if (!main || !ad) return;
+
+      // Reset ad manager so it stops scheduling anything
+      try {
+        const mgr: any = adsRef.current;
+        mgr?.hardReset?.();
+      } catch {}
+
+      // Stop & clear ad element
+      try {
+        ad.pause();
+        ad.removeAttribute("src");
+        ad.load();
+      } catch {}
+
+      // Remove play-guard on main
+      try {
+        const guard = adPlaybackGuardRef.current;
+        if (guard && main) main.removeEventListener("play", guard);
+      } catch {}
+      adPlaybackGuardRef.current = null;
+
+      // Mark ads inactive – we intentionally dismiss this ad
+      adActiveRef.current = false;
+      setAdActive(false);
+    };
+
+    const id = window.setInterval(() => {
+      const main = videoRef.current;
+      const ad = adVideoRef.current;
+      if (!main || !ad) return;
+
+      const mainPlaying = !main.paused && !main.ended && (main.readyState ?? 0) >= 2;
+      const adPlaying = !ad.paused && !ad.ended && (ad.readyState ?? 0) >= 2;
+
+      // This state should NEVER happen normally (preroll must pause main),
+      // so if we see it, we aggressively drop the ad and keep content.
+      if (mainPlaying && adPlaying) {
+        stopAdKeepMain();
+      }
+    }, 250);
+
+    return () => window.clearInterval(id);
+  }, [videoRef, adVideoRef]);
+
+  // ad markers from schedule (for UI)
   const adMarkers = React.useMemo(() => {
     const arr: { at: number }[] = [];
     const s = source.ads?.schedule;
@@ -252,6 +351,109 @@ export function useAdsAutoplayResume(params: { engine: any; source: any; analyti
     },
     [engine, videoRef]
   );
+
+  // ---------- Gated play with stale-ad protection ----------
+
+  const gatedPlay = React.useCallback(async (): Promise<boolean> => {
+    const v = videoRef.current;
+    if (!v) return false;
+
+    // If we *think* an ad is active, verify it's really playing.
+    if (adActiveRef.current) {
+      const adEl = adVideoRef.current;
+      const adIsReal = adEl && !adEl.paused && !adEl.ended && (adEl.readyState ?? 0) >= 2;
+
+      if (!adIsReal) {
+        // Stale ghost state (e.g. from previous page) → nuke it.
+        adActiveRef.current = false;
+        setAdActive(false);
+        try {
+          const guard = adPlaybackGuardRef.current;
+          if (guard && v) v.removeEventListener("play", guard);
+        } catch {}
+        adPlaybackGuardRef.current = null;
+      } else {
+        // Real ad → remember desired play and bail
+        wasPlayingBeforeAdRef.current = true;
+        return false;
+      }
+    }
+
+    // Already playing → done
+    if (!v.paused && !v.ended) {
+      onDispatch("play");
+      return true;
+    }
+
+    // If preroll pending, do a silent prime for autoplay policy, but still try to play.
+    if (adsPrerollPendingRef.current) {
+      wasPlayingBeforeAdRef.current = true;
+      try {
+        const prevMuted = v.muted;
+        const prevVol = v.volume;
+        v.muted = true;
+        engine.setMuted?.(true);
+        v.volume = 0;
+        engine.setVolume?.(0);
+        try {
+          await (engine.play?.() ?? v.play?.());
+        } catch {}
+        setTimeout(() => {
+          try {
+            v.pause();
+          } catch {}
+        }, 0);
+        v.muted = prevMuted;
+        v.volume = prevVol;
+      } catch {}
+      // fall through to tryPlayWithEventDispatch()
+    }
+
+    await tryPlayWithEventDispatch();
+    return true;
+  }, [engine, tryPlayWithEventDispatch, videoRef, onDispatch, adVideoRef]);
+
+  // --- On unmount: HARD RESET + kill ALL media on page ---
+  React.useEffect(() => {
+    return () => {
+      try {
+        const mgr: any = adsRef.current;
+        mgr?.hardReset?.();
+      } catch {}
+
+      adActiveRef.current = false;
+      setAdActive(false);
+      wasPlayingBeforeAdRef.current = false;
+      adsPrerollPendingRef.current = false;
+      prerollServedRef.current = false;
+
+      try {
+        const guard = adPlaybackGuardRef.current;
+        const main = videoRef.current;
+        if (guard && main) main.removeEventListener("play", guard);
+      } catch {}
+      adPlaybackGuardRef.current = null;
+
+      try {
+        const adEl = adVideoRef.current;
+        if (adEl) {
+          adEl.pause();
+          adEl.removeAttribute("src");
+          adEl.load();
+        }
+      } catch {}
+
+      try {
+        const main = videoRef.current;
+        if (main) {
+          main.pause();
+        }
+      } catch {}
+
+      // HERE: make sure no ad sound survives when leaving the page
+      killAllMedia();
+    };
+  }, [videoRef, adVideoRef]);
 
   return { ads, adActive, adActiveRef, adMarkers, gatedPlay, tryPlayWithEventDispatch, tryPrimeAt };
 }

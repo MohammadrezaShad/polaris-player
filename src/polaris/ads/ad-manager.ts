@@ -1,10 +1,9 @@
-/** src/player/ads/ad-manager.tsx */
-'use client';
-import * as React from 'react';
+"use client";
+import * as React from "react";
 
-import type { AdSchedule, AdBreak, AdState, VastResponse, AdIcon } from './types';
-import { fetchVast, fireUrls, fireError } from './vast';
-import { fetchVmapToSchedule } from './vmap';
+import type { AdSchedule, AdBreak, AdState, VastResponse, AdIcon } from "./types";
+import { fetchVast, fireUrls, fireError } from "./vast";
+import { fetchVmapToSchedule } from "./vmap";
 
 export type UseAdsOptions = {
   schedule?: AdSchedule;
@@ -17,7 +16,7 @@ export type UseAdsOptions = {
 };
 
 export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts: UseAdsOptions) {
-  const [state, setState] = React.useState<AdState>({ phase: 'idle' });
+  const [state, setState] = React.useState<AdState>({ phase: "idle" });
 
   // --- internal refs/state
   const scheduleRef = React.useRef<AdSchedule | null>(opts.schedule ?? null);
@@ -37,7 +36,7 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
   const iconViewedRef = React.useRef<Set<number>>(new Set());
   const endingRef = React.useRef(false);
 
-  // Persistent served/in-progress sets (survive prop identity changes)
+  // Persistent served/in-progress sets for this hook instance
   const servedSetRef = React.useRef<Set<string>>(new Set());
   const inProgressRef = React.useRef<Set<string>>(new Set());
 
@@ -46,7 +45,7 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
   function pickMediaFile(vast: VastResponse): string | null {
     const files = vast.linear?.mediaFiles ?? [];
     if (!files.length) return null;
-    const mp4s = files.filter((f) => (f.type || '').includes('mp4'));
+    const mp4s = files.filter((f) => (f.type || "").includes("mp4"));
     const pick = (arr: typeof files) => arr.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0]?.url ?? null;
     return pick(mp4s.length ? mp4s : files);
   }
@@ -66,7 +65,6 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
 
   // ----------------- schedule wiring -----------------
 
-  // Keep schedule in ref and merge "served" flags from persistent set
   React.useEffect(() => {
     if (!opts.schedule) return;
     const next: AdSchedule = { breaks: opts.schedule.breaks.map((b) => ({ ...b })) };
@@ -74,27 +72,34 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       if (servedSetRef.current.has(b.id)) (b as any).served = true;
     }
     scheduleRef.current = next;
-    // allow percentage midrolls to resolve again for this schedule
     percResolvedRef.current = false;
   }, [opts.schedule]);
 
-  // Build schedule from VMAP (once, or when URL changes)
+  const vmapUrlRef = React.useRef<string | null>(null);
+
   React.useEffect(() => {
     (async () => {
-      if (scheduleRef.current || !opts.vmapUrl) return;
+      if (!opts.vmapUrl) return;
+      if (opts.schedule) return;
+
+      if (vmapUrlRef.current === opts.vmapUrl && scheduleRef.current) return;
+      vmapUrlRef.current = opts.vmapUrl;
+
       try {
         const sched = await fetchVmapToSchedule(opts.vmapUrl);
         const next: AdSchedule = { breaks: sched.breaks.map((b) => ({ ...b })) };
-        for (const b of next.breaks) {
-          if (servedSetRef.current.has(b.id)) (b as any).served = true;
-        }
+
+        servedSetRef.current.clear();
+        inProgressRef.current.clear();
+
         scheduleRef.current = next;
         percResolvedRef.current = false;
+        setState({ phase: "idle" });
       } catch {
         /* swallow VMAP fetch errors; just don't schedule ads */
       }
     })();
-  }, [opts.vmapUrl]);
+  }, [opts.vmapUrl, opts.schedule]);
 
   // Resolve percentage-based midrolls after we know duration
   const ensureResolvedMidrolls = React.useCallback(() => {
@@ -104,31 +109,27 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
     if (!Number.isFinite(dur) || dur <= 0) return;
 
     for (const b of sched.breaks) {
-      if (b.kind === 'midroll' && (b.timeOffsetSec ?? 0) < 0) {
-        // Example policy: negative offset -> 50% point
+      if (b.kind === "midroll" && (b.timeOffsetSec ?? 0) < 0) {
         b.timeOffsetSec = Math.floor(dur * 0.5);
       }
     }
     percResolvedRef.current = true;
   }, [opts]);
 
-  // --------------- preroll trigger (hardened) ---------------
+  // --------------- preroll trigger ---------------
   React.useEffect(() => {
     const sched = scheduleRef.current;
     if (!sched) return;
 
-    // only consider a preroll that has not been served (persistently)
-    const pre = sched.breaks.find((b) => b.kind === 'preroll' && !servedSetRef.current.has(b.id));
+    const pre = sched.breaks.find((b) => b.kind === "preroll" && !servedSetRef.current.has(b.id));
     if (!pre) return;
 
-    // only start preroll when idle and no other break is active/in progress
-    if (state.phase !== 'idle' || activeBreakRef.current) return;
+    if (state.phase !== "idle" || activeBreakRef.current) return;
     if (inProgressRef.current.has(pre.id)) return;
 
     const id = requestAnimationFrame(() => playBreak(pre));
     return () => cancelAnimationFrame(id);
-    // react when schedule identity wiggles or phase changes
-  }, [opts.schedule, state.phase]); // playBreak is stable from useCallback deps
+  }, [opts.schedule, state.phase]); // playBreak in deps below
 
   // --------------- player state updates (ad video) ---------------
 
@@ -138,12 +139,7 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
     const vast = vastRef.current;
     if (!v || !brk || !vast?.linear) return;
 
-    const knownDur =
-      Number.isFinite(vast.linear.durationSec) && vast.linear.durationSec! > 0
-        ? vast.linear.durationSec!
-        : Number.isFinite(v.duration)
-          ? v.duration
-          : 0;
+    const knownDur = Number.isFinite(vast.linear.durationSec) && vast.linear.durationSec! > 0 ? vast.linear.durationSec! : Number.isFinite(v.duration) ? v.duration : 0;
 
     const cur = Number.isFinite(v.currentTime) ? v.currentTime : 0;
     const remaining = Math.max(0, Math.ceil(knownDur - cur));
@@ -151,52 +147,49 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
     let skipCountdown: number | undefined;
     let canSkip = false;
     const off = vast.linear.skipOffsetSec;
-    if (typeof off === 'number') {
+    if (typeof off === "number") {
       const left = Math.max(0, Math.ceil(off - cur));
       skipCountdown = left;
       canSkip = left <= 0;
     }
 
-    // fire START / CREATIVEVIEW once when playback really advancing
     if (!startedRef.current && v.currentTime > 0) {
       startedRef.current = true;
       fireUrls((vast.linear.tracking as any).start ?? []);
-      opts.analyticsEmit?.({ type: 'ad_start', break: brk });
+      opts.analyticsEmit?.({ type: "ad_start", break: brk });
     }
     if (!creativeViewRef.current && v.currentTime > 0) {
       creativeViewRef.current = true;
       fireUrls((vast.linear.tracking as any).creativeView ?? []);
     }
 
-    // progress beacons
     const progressList = ((vast.linear as any).progress as { url: string; offsetSec: number }[]) ?? [];
     for (const p of progressList) {
       const key = p.url;
       if (!progressFiredRef.current.has(key) && cur >= (p.offsetSec ?? Infinity)) {
         progressFiredRef.current.add(key);
         fireUrls([p.url]);
-        opts.analyticsEmit?.({ type: 'ad_progress', break: brk, at: p.offsetSec });
+        opts.analyticsEmit?.({ type: "ad_progress", break: brk, at: p.offsetSec });
       }
     }
 
-    // quartiles
     const q = quartilesRef.current;
     const d = Math.max(0.1, knownDur);
     const pct = cur / d;
     if (!q.q1 && pct >= 0.25) {
       q.q1 = true;
       fireUrls(vast.linear.tracking.firstQuartile);
-      opts.analyticsEmit?.({ type: 'ad_quartile', break: brk, quartile: 1 });
+      opts.analyticsEmit?.({ type: "ad_quartile", break: brk, quartile: 1 });
     }
     if (!q.q2 && pct >= 0.5) {
       q.q2 = true;
       fireUrls(vast.linear.tracking.midpoint);
-      opts.analyticsEmit?.({ type: 'ad_quartile', break: brk, quartile: 2 });
+      opts.analyticsEmit?.({ type: "ad_quartile", break: brk, quartile: 2 });
     }
     if (!q.q3 && pct >= 0.75) {
       q.q3 = true;
       fireUrls(vast.linear.tracking.thirdQuartile);
-      opts.analyticsEmit?.({ type: 'ad_quartile', break: brk, quartile: 3 });
+      opts.analyticsEmit?.({ type: "ad_quartile", break: brk, quartile: 3 });
     }
 
     const vis = visibleIconsAt(vast, cur);
@@ -204,18 +197,17 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       if (!iconViewedRef.current.has(it._idx) && (it.viewTrackingUrls?.length ?? 0) > 0) {
         iconViewedRef.current.add(it._idx);
         fireUrls(it.viewTrackingUrls!);
-        opts.analyticsEmit?.({ type: 'ad_icon_view', break: brk, program: it.program, idx: it._idx });
+        opts.analyticsEmit?.({ type: "ad_icon_view", break: brk, program: it.program, idx: it._idx });
       }
     }
 
     setState({
-      phase: 'playing',
+      phase: "playing",
       break: brk,
       remainingSec: remaining,
       skipOffsetSec: off,
       skipCountdownSec: skipCountdown,
       canSkip,
-      // optional field on AdState; cast if your type doesn't have it
       ...(vis ? ({ icons: vis } as any) : null),
     });
   }, [adVideoRef, opts]);
@@ -224,47 +216,43 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
 
   const startStatePlaying = (brk: AdBreak, vast: VastResponse) => {
     setState({
-      phase: 'playing',
+      phase: "playing",
       break: brk,
       remainingSec: vast.linear!.durationSec,
       skipOffsetSec: vast.linear!.skipOffsetSec,
       skipCountdownSec: vast.linear!.skipOffsetSec ?? undefined,
       canSkip: (vast.linear!.skipOffsetSec ?? Infinity) <= 0,
     });
-    // Start/CreativeView beacons are handled in updatePlayingState()
   };
 
   const endBreak = React.useCallback(
-    (brk: AdBreak, reason: 'skip' | 'complete' | 'error' = 'complete') => {
+    (brk: AdBreak, reason: "skip" | "complete" | "error" = "complete") => {
       if (endingRef.current) return;
       endingRef.current = true;
 
       const v = adVideoRef.current;
-      // 1) stop ad media + detach listeners
       try {
         if (v) {
           v.pause();
           cleanupRef.current?.();
           v.onended = null;
           v.onerror = null;
-          v.removeAttribute('src');
-          v.load(); // release buffer
+          v.removeAttribute("src");
+          v.load();
         }
       } catch {}
 
-      // 2) persist served & update local state
       servedSetRef.current.add(brk.id);
       brk.served = true;
 
       setState((s) => ({
         ...s,
-        phase: 'completed',
+        phase: "completed",
         break: brk,
         ...(s && (s as any).icons ? { icons: [] } : {}),
       }));
-      opts.analyticsEmit?.({ type: 'ad_break_end', break: brk, reason });
+      opts.analyticsEmit?.({ type: "ad_break_end", break: brk, reason });
 
-      // 3) clear per-break refs
       activeBreakRef.current = null;
       vastRef.current = null;
       startedRef.current = false;
@@ -275,27 +263,24 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       iconViewedRef.current?.clear?.();
       inProgressRef.current.delete(brk.id);
 
-      // 4) resume main content
       const doResume = () => {
         try {
           opts.onResumeMain();
         } catch {}
       };
-      if (reason === 'skip') {
-        // keep gesture context
+      if (reason === "skip") {
         doResume();
         requestAnimationFrame(() => doResume());
       } else {
         requestAnimationFrame(() => doResume());
       }
 
-      // 5) flip back to idle quickly
       setTimeout(() => {
-        setState({ phase: 'idle' });
+        setState({ phase: "idle" });
         endingRef.current = false;
       }, 0);
     },
-    [adVideoRef, opts],
+    [adVideoRef, opts]
   );
 
   const playBreak = React.useCallback(
@@ -303,7 +288,6 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       const v = adVideoRef.current;
       if (!v) return;
 
-      // prevent duplicates / overlaps
       if (servedSetRef.current.has(brk.id) || inProgressRef.current.has(brk.id) || activeBreakRef.current) return;
       inProgressRef.current.add(brk.id);
 
@@ -316,57 +300,50 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       progressFiredRef.current.clear();
       cleanupRef.current?.();
 
-      setState({ phase: 'loading', break: brk });
+      setState({ phase: "loading", break: brk });
 
-      // pause main content immediately
       opts.onPauseMain();
-      opts.analyticsEmit?.({ type: 'ad_break_start', break: brk });
+      opts.analyticsEmit?.({ type: "ad_break_start", break: brk });
 
-      // Fetch VAST
       let vast: VastResponse;
       try {
         vast = await fetchVast(brk.vastTagUrl);
       } catch (e: any) {
-        setState({ phase: 'error', break: brk, message: e?.message ?? 'vast_fetch_error' });
-        opts.analyticsEmit?.({ type: 'ad_error', break: brk, message: 'vast_fetch_error' });
-        return endBreak(brk, 'error');
+        setState({ phase: "error", break: brk, message: e?.message ?? "vast_fetch_error" });
+        opts.analyticsEmit?.({ type: "ad_error", break: brk, message: "vast_fetch_error" });
+        return endBreak(brk, "error");
       }
       vastRef.current = vast;
 
-      // Impressions
       fireUrls(vast.impressions);
-      opts.analyticsEmit?.({ type: 'ad_impression', break: brk });
+      opts.analyticsEmit?.({ type: "ad_impression", break: brk });
 
-      // Pick media
       const mediaUrl = pickMediaFile(vast);
       if (!mediaUrl || !vast.linear) {
         fireError(vast.errorUrls, 401);
-        setState({ phase: 'error', break: brk, message: 'no_linear_media' });
-        opts.analyticsEmit?.({ type: 'ad_error', break: brk, message: 'no_linear_media' });
-        return endBreak(brk, 'error');
+        setState({ phase: "error", break: brk, message: "no_linear_media" });
+        opts.analyticsEmit?.({ type: "ad_error", break: brk, message: "no_linear_media" });
+        return endBreak(brk, "error");
       }
 
-      // Prepare ad element
       v.src = mediaUrl;
       v.currentTime = 0;
       v.muted = false;
       v.playsInline = true;
-      v.crossOrigin = 'anonymous';
+      v.crossOrigin = "anonymous";
       v.load();
 
-      // Terminal events
       v.onended = () => {
         fireUrls(vast.linear?.tracking?.complete ?? []);
-        opts.analyticsEmit?.({ type: 'ad_complete', break: brk });
-        endBreak(brk, 'complete');
+        opts.analyticsEmit?.({ type: "ad_complete", break: brk });
+        endBreak(brk, "complete");
       };
       v.onerror = () => {
         fireError(vast.errorUrls, 405);
-        opts.analyticsEmit?.({ type: 'ad_error', break: brk, message: 'ad_media_error' });
-        endBreak(brk, 'error');
+        opts.analyticsEmit?.({ type: "ad_error", break: brk, message: "ad_media_error" });
+        endBreak(brk, "error");
       };
 
-      // Listeners
       const onTU = () => updatePlayingState();
       const onLM = () => updatePlayingState();
       const onPlaying = () => {
@@ -388,25 +365,24 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
         }
         if (lastMutedRef.current !== nowMuted) {
           lastMutedRef.current = nowMuted;
-          fireUrls((vast.linear?.tracking as any)[nowMuted ? 'mute' : 'unmute'] ?? []);
+          fireUrls((vast.linear?.tracking as any)[nowMuted ? "mute" : "unmute"] ?? []);
         }
       };
 
-      v.addEventListener('timeupdate', onTU);
-      v.addEventListener('loadedmetadata', onLM);
-      v.addEventListener('playing', onPlaying);
-      v.addEventListener('pause', onPause);
-      v.addEventListener('volumechange', onVol);
+      v.addEventListener("timeupdate", onTU);
+      v.addEventListener("loadedmetadata", onLM);
+      v.addEventListener("playing", onPlaying);
+      v.addEventListener("pause", onPause);
+      v.addEventListener("volumechange", onVol);
 
       cleanupRef.current = () => {
-        v.removeEventListener('timeupdate', onTU);
-        v.removeEventListener('loadedmetadata', onLM);
-        v.removeEventListener('playing', onPlaying);
-        v.removeEventListener('pause', onPause);
-        v.removeEventListener('volumechange', onVol);
+        v.removeEventListener("timeupdate", onTU);
+        v.removeEventListener("loadedmetadata", onLM);
+        v.removeEventListener("playing", onPlaying);
+        v.removeEventListener("pause", onPause);
+        v.removeEventListener("volumechange", onVol);
       };
 
-      // Try autoplay; fallback to muted
       try {
         await v.play();
         startStatePlaying(brk, vast);
@@ -417,16 +393,16 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
           await v.play();
           startStatePlaying(brk, vast);
           updatePlayingState();
-          opts.analyticsEmit?.({ type: 'ad_start', break: brk, mutedAutoplay: true });
+          opts.analyticsEmit?.({ type: "ad_start", break: brk, mutedAutoplay: true });
         } catch {
           cleanupRef.current();
-          setState({ phase: 'error', break: brk, message: 'ad_autoplay_blocked' });
-          opts.analyticsEmit?.({ type: 'ad_error', break: brk, message: 'ad_autoplay_blocked' });
-          endBreak(brk, 'error');
+          setState({ phase: "error", break: brk, message: "ad_autoplay_blocked" });
+          opts.analyticsEmit?.({ type: "ad_error", break: brk, message: "ad_autoplay_blocked" });
+          endBreak(brk, "error");
         }
       }
     },
-    [adVideoRef, opts, updatePlayingState, endBreak],
+    [adVideoRef, opts, updatePlayingState, endBreak]
   );
 
   // --------------- driver loop: midrolls ---------------
@@ -437,13 +413,12 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
       const sched = scheduleRef.current;
       if (!sched) return;
 
-      // Only schedule when idle and nothing active/in-progress
-      if (state.phase !== 'idle' || activeBreakRef.current) return;
+      if (state.phase !== "idle" || activeBreakRef.current) return;
 
       const now = opts.timeProvider();
       for (const br of sched.breaks) {
         if (servedSetRef.current.has(br.id) || inProgressRef.current.has(br.id)) continue;
-        if (br.kind === 'midroll') {
+        if (br.kind === "midroll") {
           const at = br.timeOffsetSec ?? 0;
           if (at > 0 && now >= at - 0.25) {
             playBreak(br);
@@ -460,7 +435,7 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
   const notifyEnded = React.useCallback(() => {
     const sched = scheduleRef.current;
     if (!sched) return;
-    const pr = sched.breaks.find((b) => b.kind === 'postroll' && !servedSetRef.current.has(b.id));
+    const pr = sched.breaks.find((b) => b.kind === "postroll" && !servedSetRef.current.has(b.id));
     if (pr) playBreak(pr);
   }, [playBreak]);
 
@@ -468,12 +443,12 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
     const url = vastRef.current?.linear?.clickThroughUrl;
     if (url) {
       try {
-        window.open(url, '_blank', 'noopener');
+        window.open(url, "_blank", "noopener");
       } catch {}
       const clickUrls = vastRef.current?.linear?.clickTrackingUrls ?? [];
       fireUrls(clickUrls);
       const brk = activeBreakRef.current;
-      if (brk) opts.analyticsEmit?.({ type: 'ad_click', break: brk, url });
+      if (brk) opts.analyticsEmit?.({ type: "ad_click", break: brk, url });
     }
   }, [opts]);
 
@@ -484,13 +459,13 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
     if (!brk || !v || !vast?.linear) return;
 
     const off = vast.linear.skipOffsetSec;
-    const allowed = typeof off === 'number' ? v.currentTime >= off - 0.01 : false;
+    const allowed = typeof off === "number" ? v.currentTime >= off - 0.01 : false;
     if (!allowed) return;
 
     fireUrls((vast.linear.tracking as any).skip ?? []);
     fireUrls((vast.linear.tracking as any).closeLinear ?? []);
-    opts.analyticsEmit?.({ type: 'ad_skip', break: brk });
-    endBreak(brk, 'skip');
+    opts.analyticsEmit?.({ type: "ad_skip", break: brk });
+    endBreak(brk, "skip");
   }, [adVideoRef, endBreak, opts]);
 
   const iconClick = React.useCallback(
@@ -502,22 +477,68 @@ export function useAdManager(adVideoRef: React.RefObject<HTMLVideoElement>, opts
 
       if (icon.clickThroughUrl) {
         try {
-          window.open(icon.clickThroughUrl, '_blank', 'noopener');
+          window.open(icon.clickThroughUrl, "_blank", "noopener");
         } catch {}
       }
       if (icon.clickTrackingUrls?.length) fireUrls(icon.clickTrackingUrls);
       const br = activeBreakRef.current;
       if (br) {
         opts.analyticsEmit?.({
-          type: 'ad_icon_click',
+          type: "ad_icon_click",
           break: br,
           program: icon.program,
           idx: iconIdx,
         });
       }
     },
-    [opts],
+    [opts]
   );
 
-  return { state, clickThrough, skip, notifyEnded, iconClick };
+  // ---------- HARD RESET (called from useAdsAutoplayResume) ----------
+  const hardReset = React.useCallback(() => {
+    try {
+      const v = adVideoRef.current;
+      if (v) {
+        try {
+          v.pause();
+        } catch {}
+        try {
+          cleanupRef.current?.();
+        } catch {}
+        v.onended = null;
+        v.onerror = null;
+        v.removeAttribute("src");
+        try {
+          v.load();
+        } catch {}
+      }
+    } catch {}
+
+    scheduleRef.current = null;
+    activeBreakRef.current = null;
+    vastRef.current = null;
+
+    quartilesRef.current = { q1: false, q2: false, q3: false };
+    percResolvedRef.current = false;
+    startedRef.current = false;
+    creativeViewRef.current = false;
+    pausedRef.current = false;
+    lastMutedRef.current = null;
+    progressFiredRef.current.clear();
+    iconViewedRef.current.clear();
+    servedSetRef.current.clear();
+    inProgressRef.current.clear();
+    endingRef.current = false;
+
+    setState({ phase: "idle" });
+  }, [adVideoRef]);
+
+  // On unmount: absolutely stop ad video
+  React.useEffect(() => {
+    return () => {
+      hardReset();
+    };
+  }, [hardReset]);
+
+  return { state, clickThrough, skip, notifyEnded, iconClick, hardReset };
 }
